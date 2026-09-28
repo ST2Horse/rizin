@@ -34,6 +34,10 @@ typedef struct {
 	ut32 reloc_list_start; //!< The offset of the address relocation list
 	ut32 num_reloc_entries; //!< The number of entries in the address relocation list
 	ut8 uuid[16];
+	ut32 resource_crc;//V2 only
+	ut32 resource_timestamp;//V2 only
+	ut16 virtual_size;//V2 only
+	ut64 header_size;
 } PebbleAppInfo;
 
 static bool pebble_check_buffer(RzBuffer *b) {
@@ -51,7 +55,10 @@ static inline bool parse_pebble_version(RzBuffer *buf, ut64 *offset, Version *v)
 
 static bool parse_pebble_app_info(RzBuffer *buf, PebbleAppInfo *pai) {
 	ut64 offset = 0;
-	return rz_buf_read_offset(buf, &offset, (ut8 *)pai->header, sizeof(pai->header)) &&
+
+	//same positions in V1 and V2
+	bool common_ok =
+	    rz_buf_read_offset(buf, &offset, (ut8 *)pai->header, sizeof(pai->header)) &&
 		parse_pebble_version(buf, &offset, &pai->struct_version) &&
 		parse_pebble_version(buf, &offset, &pai->sdk_version) &&
 		parse_pebble_version(buf, &offset, &pai->app_version) &&
@@ -62,10 +69,35 @@ static bool parse_pebble_app_info(RzBuffer *buf, PebbleAppInfo *pai) {
 		rz_buf_read_offset(buf, &offset, (ut8 *)pai->company, sizeof(pai->company)) &&
 		rz_buf_read_le32_offset(buf, &offset, &pai->icon_resource_id) &&
 		rz_buf_read_le32_offset(buf, &offset, &pai->sym_table_addr) &&
-		rz_buf_read_le32_offset(buf, &offset, &pai->flags) &&
-		rz_buf_read_le32_offset(buf, &offset, &pai->reloc_list_start) &&
-		rz_buf_read_le32_offset(buf, &offset, &pai->num_reloc_entries) &&
-		rz_buf_read_offset(buf, &offset, (ut8 *)pai->uuid, sizeof(pai->uuid));
+		rz_buf_read_le32_offset(buf, &offset, &pai->flags);
+	if (!common_ok) {
+		return false;
+	}
+
+	bool version_ok = false;
+	if (pai->struct_version.major == 8 && pai->struct_version.minor == 1) {
+		version_ok =
+			rz_buf_read_le32_offset(buf, &offset, &pai->reloc_list_start) &&
+			rz_buf_read_le32_offset(buf, &offset, &pai->num_reloc_entries) &&
+			rz_buf_read_offset(buf, &offset, (ut8 *)pai->uuid, sizeof(pai->uuid));
+	} else if (pai->struct_version.major == 16 && pai->struct_version.minor == 0) {
+		version_ok =
+			rz_buf_read_le32_offset(buf, &offset, &pai->num_reloc_entries) &&
+			rz_buf_read_offset(buf, &offset, (ut8 *)pai->uuid, sizeof(pai->uuid)) &&
+			rz_buf_read_le32_offset(buf, &offset, &pai->resource_crc) &&
+			rz_buf_read_le32_offset(buf, &offset, &pai->resource_timestamp) &&
+			rz_buf_read_le16_offset(buf, &offset, &pai->virtual_size);
+		if (version_ok) {
+			pai->reloc_list_start = pai->size;
+		}
+	}
+
+	if (!version_ok) {
+		return false;
+	}
+	pai->header_size = offset;
+
+	return true;
 }
 
 static bool pebble_load_buffer(RzBinFile *bf, RzBinObject *obj, RzBuffer *b, Sdb *sdb) {
@@ -165,7 +197,7 @@ static RzPVector /*<RzBinSection *>*/ *pebble_sections(RzBinFile *bf) {
 		return ret;
 	}
 	ptr->name = rz_str_dup("header");
-	ptr->vsize = ptr->size = sizeof(PebbleAppInfo);
+	ptr->vsize = ptr->size = pai->header_size;
 	ptr->vaddr = ptr->paddr = 0;
 	ptr->perm = RZ_PERM_R;
 	rz_pvector_push(ret, ptr);
@@ -193,6 +225,58 @@ static RzPVector /*<RzBinAddr *>*/ *pebble_entries(RzBinFile *bf) {
 	return ret;
 }
 
+static void pebble_structure_union_version(RzStructuredData *parent, const char *name, Version *version) {
+	RzStructuredData *version_data = rz_structured_data_map_add_map(parent, name);
+	if (!version_data) {
+		return;
+	}
+	rz_structured_data_map_add_unsigned(version_data, "major", version->major, false);
+	rz_structured_data_map_add_unsigned(version_data, "minor", version->minor, false);
+}
+
+static RzStructuredData *pebble_structure(RzBinFile *bf){
+	rz_return_val_if_fail(bf && bf->o && bf->o->bin_obj,NULL);
+	PebbleAppInfo *pai = pebble_get_pai(bf);
+	if (!pai) {
+		return NULL;
+	}
+
+	RzStructuredData *info = rz_structured_data_new_map();
+	if (!info) {
+		return NULL;
+	}
+
+	RzStructuredData *pebble_sd = rz_structured_data_map_add_map(info,"pebble");
+	if(!pebble_sd) {
+		rz_structured_data_free(info);
+		return NULL;
+	}
+
+	rz_structured_data_map_add_bytes(pebble_sd, "Magic", (const ut8*)pai->header, sizeof(pai->header), RZ_STRUCTURED_DATA_FORMAT_HEXDUMP);
+	rz_structured_data_map_add_string_n(pebble_sd, "app_name", pai->name, sizeof(pai->name));
+	rz_structured_data_map_add_string_n(pebble_sd, "company", pai->company, sizeof(pai->company));
+	rz_structured_data_map_add_bytes(pebble_sd, "uuid", pai->uuid, sizeof(pai->uuid), RZ_STRUCTURED_DATA_FORMAT_HEXDUMP);
+	pebble_structure_union_version(pebble_sd, "struct_version", &pai->struct_version);
+	pebble_structure_union_version(pebble_sd, "sdk_version", &pai->sdk_version);
+	pebble_structure_union_version(pebble_sd, "app_version", &pai->app_version);
+	rz_structured_data_map_add_unsigned(pebble_sd, "flags", pai->flags, true);
+	rz_structured_data_map_add_unsigned(pebble_sd, "app_size", pai->size, true);
+	rz_structured_data_map_add_unsigned(pebble_sd, "entry_point", pai->offset, true);
+	rz_structured_data_map_add_unsigned(pebble_sd, "crc", pai->crc, true);
+	rz_structured_data_map_add_unsigned(pebble_sd, "icon_resource_id", pai->icon_resource_id, true);
+	rz_structured_data_map_add_unsigned(pebble_sd, "sym_table_addr", pai->sym_table_addr, true);
+	rz_structured_data_map_add_unsigned(pebble_sd, "reloc_list_start", pai->reloc_list_start, true);
+	rz_structured_data_map_add_unsigned(pebble_sd, "num_reloc_entries", pai->num_reloc_entries, true);
+
+	if (pai->struct_version.major == 16 && pai->struct_version.minor ==0) {
+		rz_structured_data_map_add_unsigned(pebble_sd, "resource_crc", pai->resource_crc, true);
+		rz_structured_data_map_add_unsigned(pebble_sd, "resource_timestamp", pai->resource_timestamp, false);
+		rz_structured_data_map_add_unsigned(pebble_sd, "virtual_size", pai->virtual_size, true);
+	}
+
+	return info;
+}
+
 RzBinPlugin rz_bin_plugin_pebble = {
 	.name = "pebble",
 	.desc = "Pebble Watch App",
@@ -205,6 +289,7 @@ RzBinPlugin rz_bin_plugin_pebble = {
 	.maps = &rz_bin_maps_of_file_sections,
 	.sections = pebble_sections,
 	.info = &pebble_info,
+	.bin_structure = &pebble_structure,
 };
 
 #ifndef RZ_PLUGIN_INCORE

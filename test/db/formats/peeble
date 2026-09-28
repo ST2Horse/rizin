@@ -1,7 +1,38 @@
-NAME=Peeble: Open/iI
+NAME=Pebble V2: Open/iI/iH
 FILE=bins/pebble/pebble-app.bin
-CMDS=iI~?pebble
+CMDS=<<EOF
+iI~?pebble
+echo ---
+iH
+EOF
 EXPECT=<<EOF
 1
+---
+pebble:
+  Magic: "50 42 4c 41 50 50 00 00                         |PBLAPP..        |"
+  app_name: "Pedometer"
+  company: "Jathusan Thiruchelvanathan"
+  uuid: "07 d8 78 11 51 0f 48 f2 b7 23 6b cf c4 db 9a 40 |..x.Q.H..#k....@|"
+  struct_version:
+    major: 16
+    minor: 0
+  sdk_version:
+    major: 5
+    minor: 0
+  app_version:
+    major: 1
+    minor: 5
+  flags: 0x0
+  app_size: 0x1bac
+  entry_point: 0x98
+  crc: 0x6a4aab95
+  icon_resource_id: 0x11
+  sym_table_addr: 0x94
+  reloc_list_start: 0x1bac
+  num_reloc_entries: 0x2e
+  resource_crc: 0x58bb474f
+  resource_timestamp: 1396741677
+  virtual_size: 0x1cf5
+
 EOF
 RUN
