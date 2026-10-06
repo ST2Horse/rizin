@@ -3080,8 +3080,6 @@ RZ_IPI RzCmdStatus rz_cmd_disassembly_function_summary_handler(RzCore *core, int
 }
 
 RZ_IPI RzCmdStatus rz_cmd_disassembly_n_instrs_as_text_json_handler(RzCore *core, int argc, const char **argv, RzCmdStateOutput *state) {
-	ut32 old_blocksize = core->blocksize;
-	ut64 old_offset = core->offset;
 	core->num->value = 0;
 
 	st64 parsed = argc > 1 ? (st64)rz_num_math(core->num, argv[1]) : 0;
@@ -3090,18 +3088,46 @@ RZ_IPI RzCmdStatus rz_cmd_disassembly_n_instrs_as_text_json_handler(RzCore *core
 		return RZ_CMD_STATUS_ERROR;
 	}
 	int n_instrs = parsed;
-	if (n_instrs < 0) {
-		ut64 new_offset = old_offset;
-		if (!rz_core_prevop_addr(core, old_offset, -n_instrs, &new_offset)) {
-			new_offset = rz_core_prevop_addr_force(core, old_offset, -n_instrs);
+	int n_bytes = 0;
+	ut64 offset = rz_core_backward_offset(core, core->offset, &n_instrs, &n_bytes);
+	ut8 *owned_buf = NULL;
+	ut8 *buf = core->block;
+	if (n_instrs) {
+		// A count limits instructions, so provide enough bytes even for the longest ones.
+		int max_op_size = rz_analysis_archinfo(core->analysis,
+			RZ_ANALYSIS_ARCHINFO_MAX_OP_SIZE);
+		bool unknown_op_size = max_op_size < 1;
+		if (unknown_op_size) {
+			max_op_size = 32;
 		}
-		ut32 new_blocksize = new_offset - old_blocksize;
-		if (new_blocksize > old_blocksize) {
-			rz_core_block_size(core, new_blocksize);
+		if (n_instrs > (ST32_MAX - 1) / max_op_size) {
+			RZ_LOG_ERROR("Disassembly buffer size is too big\n");
+			return RZ_CMD_STATUS_ERROR;
 		}
-		rz_core_seek(core, new_offset, true);
+		n_bytes = max_op_size * n_instrs;
+		if (unknown_op_size) {
+			// Variable-length instructions may exceed the default; retain the old read span.
+			if (core->blocksize > ST32_MAX - 1) {
+				RZ_LOG_ERROR("Disassembly buffer size is too big\n");
+				return RZ_CMD_STATUS_ERROR;
+			}
+			n_bytes = RZ_MAX((ut32)n_bytes, core->blocksize);
+		}
+		owned_buf = RZ_NEWS0(ut8, n_bytes + 1);
+		if (!owned_buf) {
+			RZ_LOG_ERROR("Failed to allocate disassembly buffer\n");
+			return RZ_CMD_STATUS_ERROR;
+		}
+		if (!rz_io_read_at_mapped(core->io, offset, owned_buf, n_bytes + 1)) {
+			free(owned_buf);
+			RZ_LOG_ERROR("Failed to read disassembly buffer\n");
+			return RZ_CMD_STATUS_ERROR;
+		}
+		buf = owned_buf;
 	} else {
+		// Preserve the block-bytes limit when no instruction count is requested.
 		rz_core_block_read(core);
+		n_bytes = core->blocksize;
 	}
 
 	state->mode = RZ_OUTPUT_MODE_JSON;
@@ -3111,14 +3137,11 @@ RZ_IPI RzCmdStatus rz_cmd_disassembly_n_instrs_as_text_json_handler(RzCore *core
 		core->cons->was_html = true;
 	}
 	RzCoreDisasmOptions disasm_options = {
-		.cbytes = 1,
+		.cbytes = !n_instrs,
 	};
-	core->num->value = rz_core_print_disasm(core, core->offset, core->block, core->blocksize, RZ_ABS(n_instrs), state, &disasm_options);
-
-	if (n_instrs < 0) {
-		rz_core_block_size(core, old_blocksize);
-		rz_core_seek(core, old_offset, true);
-	}
+	core->num->value = rz_core_print_disasm(core, offset, buf, n_bytes,
+		n_instrs, state, &disasm_options);
+	free(owned_buf);
 	return RZ_CMD_STATUS_OK;
 }
 

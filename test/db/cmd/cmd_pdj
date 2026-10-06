@@ -46,3 +46,131 @@ EXPECT=<<EOF
 EOF
 RUN
 
+NAME=pdJ count with 1-byte block and 5/10/15-byte instructions
+FILE=malloc://2048
+CMDS=<<EOF
+e asm.arch=x86
+e asm.bits=64
+e asm.bytes=true
+e asm.nbytes=20
+e asm.lines.bb=0
+e asm.flags=false
+e asm.functions=false
+e asm.comments=false
+wx b8010000009048b80102030405060708906666666666662e0f1f84000000000090c3
+b 1
+pdJ 6
+s
+b
+EOF
+EXPECT=<<EOF
+[{"offset":0,"text":"0x00000000      b801000000                                 mov   eax, 0x01"},{"offset":5,"text":"0x00000005      90                                         nop"},{"offset":6,"text":"0x00000006      48b80102030405060708                       mov   rax, 0x807060504030201"},{"offset":16,"text":"0x00000010      90                                         nop"},{"offset":17,"text":"0x00000011      6666666666662e0f1f840000000000             nop   word [rax+rax*1], ax"},{"offset":32,"text":"0x00000020      90                                         nop"}]
+0x0
+0x1
+EOF
+EXPECT_ERR=
+RUN
+
+NAME=pdJ count with 2-byte block and 5/10/15-byte instructions
+FILE=malloc://2048
+CMDS=<<EOF
+e asm.arch=x86
+e asm.bits=64
+e asm.bytes=true
+e asm.nbytes=20
+e asm.lines.bb=0
+e asm.flags=false
+e asm.functions=false
+e asm.comments=false
+wx b8010000009048b80102030405060708906666666666662e0f1f84000000000090c3
+b 2
+pdJ 6
+s
+b
+EOF
+EXPECT=<<EOF
+[{"offset":0,"text":"0x00000000      b801000000                                 mov   eax, 0x01"},{"offset":5,"text":"0x00000005      90                                         nop"},{"offset":6,"text":"0x00000006      48b80102030405060708                       mov   rax, 0x807060504030201"},{"offset":16,"text":"0x00000010      90                                         nop"},{"offset":17,"text":"0x00000011      6666666666662e0f1f840000000000             nop   word [rax+rax*1], ax"},{"offset":32,"text":"0x00000020      90                                         nop"}]
+0x0
+0x2
+EOF
+EXPECT_ERR=
+RUN
+
+NAME=pdJ backwards long instructions preserves seek and block
+FILE=malloc://2048
+CMDS=<<EOF
+e asm.arch=x86
+e asm.bits=64
+e asm.bytes=true
+e asm.nbytes=20
+e asm.lines.bb=0
+e asm.flags=false
+e asm.functions=false
+e asm.comments=false
+wx b8010000009048b80102030405060708906666666666662e0f1f84000000000090c3
+af
+b 2
+s 33
+pdJ -6
+s
+b
+EOF
+EXPECT=<<EOF
+[{"offset":0,"text":"0x00000000      b801000000                                 mov   eax, 0x01"},{"offset":5,"text":"0x00000005      90                                         nop"},{"offset":6,"text":"0x00000006      48b80102030405060708                       mov   rax, 0x807060504030201"},{"offset":16,"text":"0x00000010      90                                         nop"},{"offset":17,"text":"0x00000011      6666666666662e0f1f840000000000             nop   word [rax+rax*1], ax"},{"offset":32,"text":"0x00000020      90                                         nop"}]
+0x21
+0x2
+EOF
+EXPECT_ERR=
+RUN
+
+NAME=pdJ no argument and zero preserve block bytes limit
+FILE=malloc://2048
+CMDS=<<EOF
+e asm.arch=x86
+e asm.bits=64
+e asm.bytes=true
+e asm.nbytes=20
+e asm.lines.bb=0
+e asm.flags=false
+e asm.functions=false
+e asm.comments=false
+wx 9090909090
+b 2
+pdJ
+pdJ 0
+s
+b
+EOF
+EXPECT=<<EOF
+[{"offset":0,"text":"0x00000000      90                                         nop"},{"offset":1,"text":"0x00000001      90                                         nop"}]
+[{"offset":0,"text":"0x00000000      90                                         nop"},{"offset":1,"text":"0x00000001      90                                         nop"}]
+0x0
+0x2
+EOF
+EXPECT_ERR=
+RUN
+
+NAME=pdJ unknown instruction size with one-byte block (CIL ldc.i8)
+FILE=malloc://1024
+CMDS=<<EOF
+e asm.arch=cil
+e asm.bits=32
+e asm.bytes=true
+e asm.nbytes=64
+e asm.lines.bb=0
+e asm.flags=false
+e asm.functions=false
+e asm.comments=false
+wx 21ffffffffffffffff
+b 1
+pdJ 1
+s
+b
+EOF
+EXPECT=<<EOF
+[{"offset":0,"text":"0x00000000      21ffffffffffffffff                   ldc.i8 0xFFFFFFFFFFFFFFFF"}]
+0x0
+0x1
+EOF
+EXPECT_ERR=
+RUN

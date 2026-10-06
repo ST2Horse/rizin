@@ -243,7 +243,113 @@ beach:
 	mu_cleanup_end;
 }
 
+static bool check_pdj_small_block(const char *command, ut32 blocksize, bool backwards,
+	bool defaults) {
+	int retval = MU_PASSED;
+	RzCore *core = rz_core_new();
+	char *output = NULL;
+	RzJson *json = NULL;
+	const ut64 offsets[] = { 0, 5, 6, 16, 17, 32 };
+	const char *bytes[] = { "b801000000", "90", "48b80102030405060708", "90",
+		"6666666666662e0f1f840000000000", "90" };
+	const char *opcodes[] = { "mov   eax, 0x01", "nop", "mov   rax, 0x807060504030201",
+		"nop", "nop   word [rax+rax*1], ax", "nop" };
+	if (!core) {
+		mu_cleanup_fail(cleanup, "core should be created");
+	}
+	core->io->va = false;
+	if (!rz_core_file_open(core, "malloc://2048", RZ_PERM_RW, 0)) {
+		mu_cleanup_fail(cleanup, "memory file should open");
+	}
+	if (rz_core_cmd0_rzshell(core, "e asm.arch=x86; e asm.bits=64; e scr.color=0; "
+		    "e asm.bytes=true; "
+		    "e asm.nbytes=20; e asm.lines.bb=0; e asm.flags=false; "
+		    "e asm.functions=false; e asm.comments=false; "
+		    "wx b8010000009048b8010203040506070890"
+		    "6666666666662e0f1f84000000000090c3") != RZ_CMD_STATUS_OK) {
+		mu_cleanup_fail(cleanup, "test instructions should be written");
+	}
+	if (backwards && rz_core_cmd0_rzshell(core, "af") != RZ_CMD_STATUS_OK) {
+		mu_cleanup_fail(cleanup, "backwards instructions should be analysed");
+	}
+	if (defaults && rz_core_cmd0_rzshell(core, "wx 9090909090") != RZ_CMD_STATUS_OK) {
+		mu_cleanup_fail(cleanup, "default test instructions should be written");
+	}
+	if (!rz_core_block_size(core, blocksize)) {
+		mu_cleanup_fail(cleanup, "small block should be selected");
+	}
+	ut64 offset = backwards ? 33 : 0;
+	rz_core_seek(core, offset, true);
+	ut8 *block = core->block;
+	output = rz_core_cmd_str(core, command);
+	if (!output || !(json = rz_json_parse(output)) || json->type != RZ_JSON_ARRAY) {
+		mu_cleanup_fail(cleanup, "pdJ should return a JSON array");
+	}
+	size_t count = defaults ? 2 : RZ_ARRAY_SIZE(offsets);
+	if (json->children.count != count) {
+		mu_cleanup_fail(cleanup, "pdJ should return all requested instructions");
+	}
+	for (size_t i = 0; i < count; i++) {
+		const RzJson *item = rz_json_item(json, i);
+		const RzJson *address = rz_json_get(item, "offset");
+		const RzJson *text = rz_json_get(item, "text");
+		if (!address || address->num.u_value != (defaults ? i : offsets[i]) ||
+			!text || text->type != RZ_JSON_STRING ||
+			!strstr(text->str_value, defaults ? "90" : bytes[i]) ||
+			!strstr(text->str_value, defaults ? "nop" : opcodes[i])) {
+			fprintf(stderr, "pdJ row %zu: %s\n", i, text ? text->str_value : "missing text");
+			mu_cleanup_fail(cleanup, "pdJ should preserve addresses, bytes and instructions");
+		}
+	}
+	if (core->offset != offset || core->blocksize != blocksize || core->block != block) {
+		mu_cleanup_fail(cleanup, "pdJ should preserve seek and the original block");
+	}
+cleanup:
+	rz_json_free(json);
+	free(output);
+	rz_core_free(core);
+	mu_cleanup_end;
+}
+
+static bool test_pdj_small_block_forward(void) {
+	mu_assert("one-byte block", check_pdj_small_block("pdJ 6", 1, false, false));
+	mu_assert("two-byte block", check_pdj_small_block("pdJ 6", 2, false, false));
+	mu_assert("crossing block boundary", check_pdj_small_block("pdJ 6", 16, false, false));
+	mu_end;
+}
+
+static bool test_pdj_small_block_backwards(void) {
+	mu_assert("backwards with one-byte block", check_pdj_small_block("pdJ -6", 1, true, false));
+	mu_assert("backwards with two-byte block", check_pdj_small_block("pdJ -6", 2, true, false));
+	mu_end;
+}
+
+static bool test_pdj_default_block_limit(void) {
+	mu_assert("no argument", check_pdj_small_block("pdJ", 2, false, true));
+	mu_assert("explicit zero", check_pdj_small_block("pdJ 0", 2, false, true));
+	mu_end;
+}
+
+static bool test_pdj_count_range(void) {
+	RzCore *core = rz_core_new();
+	mu_assert_notnull(core, "core should be created");
+	rz_core_block_size(core, 2);
+	rz_core_seek(core, 10, false);
+	mu_assert_eq(rz_core_cmd0_rzshell(core, "pdJ 32768"),
+		RZ_CMD_STATUS_ERROR, "positive range limit");
+	mu_assert_eq(rz_core_cmd0_rzshell(core, "pdJ -32769"),
+		RZ_CMD_STATUS_ERROR, "negative range limit");
+	mu_assert_eq(core->offset, 10, "invalid count should preserve seek");
+	mu_assert_eq(core->blocksize, 2, "invalid count should preserve blocksize");
+	rz_core_free(core);
+	mu_end;
+}
+
 int all_tests() {
+	mu_run_test(test_pdj_small_block_forward);
+	mu_run_test(test_pdj_small_block_backwards);
+	mu_run_test(test_pdj_default_block_limit);
+	mu_run_test(test_pdj_count_range);
 	mu_run_test(test_arg_cmd);
 	mu_run_test(test_arg_cmd_last);
 	mu_run_test(test_arg_cmd_last_with_at);
