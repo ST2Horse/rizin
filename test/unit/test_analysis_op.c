@@ -9,6 +9,89 @@
 	rz_analysis_use(analysis, arch); \
 	rz_analysis_set_bits(analysis, bits);
 
+typedef struct {
+	int bits;
+	const char *bytes;
+	int size;
+	ut32 type;
+	st64 stackptr;
+} X86StackOpTest;
+
+static bool check_x86_stack_ops(const X86StackOpTest *cases, size_t count) {
+	RzAnalysis *analysis = rz_analysis_new(NULL);
+	mu_assert_notnull(analysis, "create x86 analysis");
+	mu_assert_true(rz_analysis_use(analysis, "x86"), "select x86 analysis");
+	for (size_t i = 0; i < count; i++) {
+		const X86StackOpTest *test = &cases[i];
+		rz_analysis_set_bits(analysis, test->bits);
+		RzAnalysisOp op;
+		rz_analysis_op_init(&op);
+		int size = rz_analysis_op(analysis, &op, 0, (const ut8 *)test->bytes,
+			test->size, RZ_ANALYSIS_OP_MASK_BASIC);
+		mu_assert_eq(size, test->size, "x86 stack instruction size");
+		mu_assert_eq(op.type, test->type, "x86 stack instruction type");
+		mu_assert_eq(op.stackptr, test->stackptr, "x86 stack instruction delta");
+		mu_assert_eq(op.stackop, RZ_ANALYSIS_STACK_INC, "x86 stack instruction operation");
+		mu_assert_eq(op.family, RZ_ANALYSIS_OP_FAMILY_CPU, "x86 stack instruction family");
+		rz_analysis_op_fini(&op);
+	}
+	rz_analysis_free(analysis);
+	mu_end;
+}
+
+bool test_rz_analysis_op_x86_push_all() {
+	const X86StackOpTest cases[] = {
+		{ 32, "\x60", 1, RZ_ANALYSIS_OP_TYPE_RPUSH, 32 },
+		{ 16, "\x60", 1, RZ_ANALYSIS_OP_TYPE_RPUSH, 16 },
+		{ 32, "\x66\x60", 2, RZ_ANALYSIS_OP_TYPE_RPUSH, 16 },
+		{ 16, "\x66\x60", 2, RZ_ANALYSIS_OP_TYPE_RPUSH, 32 },
+	};
+	return check_x86_stack_ops(cases, RZ_ARRAY_SIZE(cases));
+}
+
+bool test_rz_analysis_op_x86_pop_all() {
+	const X86StackOpTest cases[] = {
+		{ 32, "\x61", 1, RZ_ANALYSIS_OP_TYPE_POP, -32 },
+		{ 16, "\x61", 1, RZ_ANALYSIS_OP_TYPE_POP, -16 },
+		{ 32, "\x66\x61", 2, RZ_ANALYSIS_OP_TYPE_POP, -16 },
+		{ 16, "\x66\x61", 2, RZ_ANALYSIS_OP_TYPE_POP, -32 },
+	};
+	return check_x86_stack_ops(cases, RZ_ARRAY_SIZE(cases));
+}
+
+bool test_rz_analysis_op_x86_single_stack_ops() {
+	const X86StackOpTest cases[] = {
+		{ 16, "\x50", 1, RZ_ANALYSIS_OP_TYPE_RPUSH, 2 },
+		{ 16, "\x58", 1, RZ_ANALYSIS_OP_TYPE_POP, -2 },
+		{ 16, "\xc3", 1, RZ_ANALYSIS_OP_TYPE_RET, -2 },
+		{ 32, "\x50", 1, RZ_ANALYSIS_OP_TYPE_RPUSH, 4 },
+		{ 32, "\x58", 1, RZ_ANALYSIS_OP_TYPE_POP, -4 },
+		{ 32, "\xc3", 1, RZ_ANALYSIS_OP_TYPE_RET, -4 },
+		{ 64, "\x50", 1, RZ_ANALYSIS_OP_TYPE_RPUSH, 8 },
+		{ 64, "\x58", 1, RZ_ANALYSIS_OP_TYPE_POP, -8 },
+		{ 64, "\xc3", 1, RZ_ANALYSIS_OP_TYPE_RET, -8 },
+	};
+	return check_x86_stack_ops(cases, RZ_ARRAY_SIZE(cases));
+}
+
+bool test_rz_analysis_op_x86_pushpop_all_invalid_64() {
+	RzAnalysis *analysis = rz_analysis_new(NULL);
+	mu_assert_notnull(analysis, "create x86 analysis");
+	SWITCH_TO_ARCH_BITS("x86", 64);
+	const char *cases[] = { "\x60", "\x61", "\x66\x60", "\x66\x61" };
+	for (size_t i = 0; i < RZ_ARRAY_SIZE(cases); i++) {
+		RzAnalysisOp op;
+		rz_analysis_op_init(&op);
+		int size = rz_analysis_op(analysis, &op, 0, (const ut8 *)cases[i],
+			strlen(cases[i]), RZ_ANALYSIS_OP_MASK_BASIC);
+		mu_assert_true(size <= 0, "push/pop all must not decode in 64-bit mode");
+		mu_assert_eq(op.type, RZ_ANALYSIS_OP_TYPE_ILL, "push/pop all is illegal in 64-bit mode");
+		rz_analysis_op_fini(&op);
+	}
+	rz_analysis_free(analysis);
+	mu_end;
+}
+
 bool test_rz_analysis_op_val() {
 	RzAnalysis *analysis = rz_analysis_new(NULL);
 	RzAnalysisOp op;
@@ -279,6 +362,10 @@ bool test_rz_core_il_print_rzil() {
 }
 
 int all_tests() {
+	mu_run_test(test_rz_analysis_op_x86_push_all);
+	mu_run_test(test_rz_analysis_op_x86_pop_all);
+	mu_run_test(test_rz_analysis_op_x86_single_stack_ops);
+	mu_run_test(test_rz_analysis_op_x86_pushpop_all_invalid_64);
 	mu_run_test(test_rz_analysis_op_val);
 	mu_run_test(test_rz_core_analysis_bytes);
 	mu_run_test(test_rz_core_print_disasm);

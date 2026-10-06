@@ -2611,8 +2611,12 @@ static void anop(RzAnalysis *a, RzAnalysisOp *op, const ut8 *buf, int len, X86ZY
 			break;
 		}
 		break;
-	// pushal, popal - push/pop EAX,EBX,ECX,EDX,ESP,EBP,ESI,EDI
+	case ZYDIS_MNEMONIC_PUSHA:
 	case X86_INS_PUSHAD:
+		op->type = RZ_ANALYSIS_OP_TYPE_RPUSH;
+		op->stackop = RZ_ANALYSIS_STACK_INC;
+		op->stackptr = 8 * (zydx->zydecode->operand_width / 8);
+		break;
 	case X86_INS_ENTER:
 	case X86_INS_PUSH:
 	case X86_INS_PUSHF:
@@ -2660,7 +2664,12 @@ static void anop(RzAnalysis *a, RzAnalysisOp *op, const ut8 *buf, int len, X86ZY
 		op->stackop = RZ_ANALYSIS_STACK_INC;
 		op->stackptr = -regsz;
 		break;
+	case ZYDIS_MNEMONIC_POPA:
 	case X86_INS_POPAD:
+		op->type = RZ_ANALYSIS_OP_TYPE_POP;
+		op->stackop = RZ_ANALYSIS_STACK_INC;
+		op->stackptr = -8 * (zydx->zydecode->operand_width / 8);
+		break;
 	case X86_INS_IRET:
 	case X86_INS_IRETD:
 	case X86_INS_IRETQ:
