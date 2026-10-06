@@ -1322,6 +1322,53 @@ static bool fill_details(RzCmd *cmd, RzCmdDesc *cd, RzStrBuf *sb, bool use_color
 		(int)fill_details_cb(cmd, cd, sb, use_color, gutter_size);
 }
 
+static char **get_arg_choices(const RzCmd *cmd, const RzCmdDescArg *arg) {
+	return arg->choices.choices_cb ? arg->choices.choices_cb(cmd->core) : (char **)arg->choices.choices;
+}
+
+static void free_arg_choices(const RzCmdDescArg *arg, char **choices) {
+	if (arg->choices.choices_cb && choices) {
+		for (char **choice = choices; *choice; choice++) {
+			free(*choice);
+		}
+		free(choices);
+	}
+}
+
+static void fill_arg_choices(RzCmd *cmd, RzCmdDesc *cd, RzStrBuf *sb, bool use_color) {
+	const char *pal_label_color = "",
+		   *pal_args_color = "",
+		   *pal_input_color = "",
+		   *pal_reset = "";
+	if (cmd->has_cons && use_color) {
+		RzCons *cons = cmd->core->cons;
+		pal_label_color = cons->context->pal.label;
+		pal_args_color = cons->context->pal.args;
+		pal_input_color = cons->context->pal.input;
+		pal_reset = cons->context->pal.reset;
+	}
+
+	bool has_choices = false;
+	for (const RzCmdDescArg *arg = cd->help->args; arg && arg->name; arg++) {
+		if (arg->type != RZ_CMD_ARG_TYPE_CHOICES) {
+			continue;
+		}
+		char **choices = get_arg_choices(cmd, arg);
+		if (choices && *choices) {
+			if (!has_choices) {
+				rz_strbuf_appendf(sb, "\n%sChoices:%s\n", pal_label_color, pal_reset);
+				has_choices = true;
+			}
+			rz_strbuf_appendf(sb, "| %s<%s>%s: %s", pal_args_color, arg->name, pal_reset, pal_input_color);
+			for (char **choice = choices; *choice; choice++) {
+				rz_strbuf_appendf(sb, "%s%s", choice == choices ? "" : ", ", *choice);
+			}
+			rz_strbuf_appendf(sb, "%s\n", pal_reset);
+		}
+		free_arg_choices(arg, choices);
+	}
+}
+
 static char *argv_get_help(RzCmd *cmd, RzCmdDesc *cd, size_t detail, bool use_color, int gutter_size) {
 	RzStrBuf *sb = rz_strbuf_new(NULL);
 	const char *pal_reset = "";
@@ -1343,6 +1390,9 @@ static char *argv_get_help(RzCmd *cmd, RzCmdDesc *cd, size_t detail, bool use_co
 			rz_strbuf_append(sb, "\n");
 			fill_colored_args(cmd, sb, cd->help->description, use_color, pal_reset);
 			rz_strbuf_append(sb, "\n");
+		}
+		if (detail == 2) {
+			fill_arg_choices(cmd, cd, sb, use_color);
 		}
 		fill_details(cmd, cd, sb, use_color, gutter_size);
 		break;
@@ -1450,17 +1500,12 @@ static void fill_args_json(const RzCmd *cmd, const RzCmdDesc *cd, PJ *j) {
 		}
 		if (arg->type == RZ_CMD_ARG_TYPE_CHOICES) {
 			pj_ka(j, "choices");
-			char **ochoice = arg->choices.choices_cb ? arg->choices.choices_cb(cmd->core) : (char **)arg->choices.choices;
-			for (char **choice = ochoice; *choice; choice++) {
+			char **choices = get_arg_choices(cmd, arg);
+			for (char **choice = choices; choice && *choice; choice++) {
 				pj_s(j, *choice);
 			}
 			pj_end(j);
-			if (arg->choices.choices_cb) {
-				for (char **choice = ochoice; *choice; choice++) {
-					free(*choice);
-				}
-				free(ochoice);
-			}
+			free_arg_choices(arg, choices);
 		}
 		pj_end(j);
 	}

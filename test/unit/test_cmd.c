@@ -521,7 +521,7 @@ bool test_remove_cmd(void) {
 }
 
 bool test_cmd_args(void) {
-	const char *x_c_choices[] = { "A", "B", "C" };
+	const char *x_c_choices[] = { "A", "B", "C", NULL };
 	RzCmdDescArg x_args[] = {
 		{ .name = "c", .type = RZ_CMD_ARG_TYPE_CHOICES, .choices.choices = x_c_choices },
 		{ .name = "from", .optional = true, .type = RZ_CMD_ARG_TYPE_NUM },
@@ -541,10 +541,101 @@ bool test_cmd_args(void) {
 
 	RzCmdParsedArgs *pa = rz_cmd_parsed_args_newcmd("x??");
 	char *h = rz_cmd_get_help(cmd, pa, false, 0);
-	mu_assert_streq(h, "Usage: x <c> [<from> <to> [<n>=5]]   # x summary\n", "arguments are considered");
+	mu_assert_streq(h, "Usage: x <c> [<from> <to> [<n>=5]]   # x summary\n\nChoices:\n| <c>: A, B, C\n", "arguments and their choices are shown");
 	rz_cmd_parsed_args_free(pa);
 	free(h);
 
+	pa = rz_cmd_parsed_args_newcmd("x?");
+	h = rz_cmd_get_help(cmd, pa, false, 0);
+	mu_assert_streq(h, "Usage: x <c> [<from> <to> [<n>=5]]   # x summary\n", "short help is unchanged");
+	rz_cmd_parsed_args_free(pa);
+	free(h);
+
+	PJ *j = pj_new();
+	pj_o(j);
+	mu_assert_true(rz_cmd_get_help_json(cmd, x_cd, j), "JSON help is generated");
+	pj_end(j);
+	mu_assert_notnull(strstr(pj_string(j), "\"choices\":[\"A\",\"B\",\"C\"]"), "JSON retains static choices");
+	pj_free(j);
+
+	rz_cmd_free(cmd);
+	mu_end;
+}
+
+static size_t choice_callback_calls;
+
+static char **test_choices_cb(RzCore *core) {
+	choice_callback_calls++;
+	char **choices = RZ_NEWS0(char *, 3);
+	if (choices) {
+		choices[0] = rz_str_dup("D");
+		choices[1] = rz_str_dup("E");
+	}
+	return choices;
+}
+
+static char **test_choices_null_cb(RzCore *core) {
+	choice_callback_calls++;
+	return NULL;
+}
+
+static char **test_choices_empty_cb(RzCore *core) {
+	choice_callback_calls++;
+	return RZ_NEWS0(char *, 1);
+}
+
+bool test_cmd_choice_callbacks(void) {
+	const char *static_choices[] = { "A", "B", NULL };
+	const char *ignored_choices[] = { "ignored", NULL };
+	RzCmdDescArg x_args[] = {
+		{ .name = "static", .type = RZ_CMD_ARG_TYPE_CHOICES, .choices.choices = static_choices },
+		{ .name = "dynamic", .type = RZ_CMD_ARG_TYPE_CHOICES, .choices = { .choices = ignored_choices, .choices_cb = test_choices_cb } },
+		{ .name = "missing", .type = RZ_CMD_ARG_TYPE_CHOICES, .choices = { .choices = ignored_choices, .choices_cb = test_choices_null_cb } },
+		{ .name = "empty", .type = RZ_CMD_ARG_TYPE_CHOICES, .choices.choices_cb = test_choices_empty_cb },
+		{ .name = "unset", .type = RZ_CMD_ARG_TYPE_CHOICES },
+		{ 0 },
+	};
+	RzCmdDescHelp x_help = { .summary = "x summary", .args = x_args };
+	RzCmd *cmd = rz_cmd_new(NULL, false);
+	RzCmdDesc *root = rz_cmd_get_root(cmd);
+	RzCmdDesc *x_cd = rz_cmd_desc_argv_new(cmd, root, "x", NULL, &x_help);
+	const char *usage = "Usage: x <static> <dynamic> <missing> <empty> <unset>   # x summary\n";
+	const char *full_help = "Usage: x <static> <dynamic> <missing> <empty> <unset>   # x summary\n"
+		"\nChoices:\n| <static>: A, B\n| <dynamic>: D, E\n";
+
+	choice_callback_calls = 0;
+	RzCmdParsedArgs *pa = rz_cmd_parsed_args_newcmd("x?");
+	mu_assert_streq_free(rz_cmd_get_help(cmd, pa, false, 0), usage, "short help does not enumerate choices");
+	mu_assert_eq(choice_callback_calls, 0, "short help does not call choice callbacks");
+	rz_cmd_parsed_args_free(pa);
+
+	pa = rz_cmd_parsed_args_newcmd("x??");
+	for (size_t i = 1; i <= 2; i++) {
+		mu_assert_streq_free(rz_cmd_get_help(cmd, pa, false, 0), full_help, "callback choices override static choices, empty lists are skipped");
+		mu_assert_eq(choice_callback_calls, i * 3, "each callback is called once per help request");
+	}
+	rz_cmd_parsed_args_free(pa);
+
+	PJ *j = pj_new();
+	pj_o(j);
+	mu_assert_true(rz_cmd_get_help_json(cmd, x_cd, j), "JSON help is generated");
+	pj_end(j);
+	const char *json = "{\"x\":{\"cmd\":\"x\",\"type\":\"argv\",\"args_str\":\" <static> <dynamic> <missing> <empty> <unset>\",\"args\":["
+		"{\"type\":\"choice\",\"name\":\"static\",\"required\":true,\"choices\":[\"A\",\"B\"]},"
+		"{\"type\":\"choice\",\"name\":\"dynamic\",\"required\":true,\"choices\":[\"D\",\"E\"]},"
+		"{\"type\":\"choice\",\"name\":\"missing\",\"required\":true,\"choices\":[]},"
+		"{\"type\":\"choice\",\"name\":\"empty\",\"required\":true,\"choices\":[]},"
+		"{\"type\":\"choice\",\"name\":\"unset\",\"required\":true,\"choices\":[]}],"
+		"\"description\":\"\",\"summary\":\"x summary\",\"details\":[]}}";
+	mu_assert_streq(pj_string(j), json, "JSON choices retain their schema and handle absent lists");
+	mu_assert_eq(choice_callback_calls, 9, "JSON calls each callback once");
+	pj_free(j);
+
+	RzCmdDescHelp empty_help = { .summary = "empty summary", .args = x_args + 2 };
+	rz_cmd_desc_argv_new(cmd, root, "empty", NULL, &empty_help);
+	pa = rz_cmd_parsed_args_newcmd("empty??");
+	mu_assert_streq_free(rz_cmd_get_help(cmd, pa, false, 0), "Usage: empty <missing> <empty> <unset>   # empty summary\n", "absent choices do not create an empty heading");
+	rz_cmd_parsed_args_free(pa);
 	rz_cmd_free(cmd);
 	mu_end;
 }
@@ -1475,6 +1566,7 @@ int all_tests() {
 	mu_run_test(test_cmd_group_exec_help);
 	mu_run_test(test_remove_cmd);
 	mu_run_test(test_cmd_args);
+	mu_run_test(test_cmd_choice_callbacks);
 	mu_run_test(test_cmd_argv_modes);
 	mu_run_test(test_cmd_argv_state);
 	mu_run_test(test_cmd_group_argv_modes);

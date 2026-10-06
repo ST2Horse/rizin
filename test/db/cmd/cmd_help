@@ -307,3 +307,49 @@ EXPECT=<<EOF
                                   feed is a newline.
 EOF
 RUN
+
+NAME=detailed help static choices
+FILE=--
+CMDS=<<EOF
+af+??
+EOF
+EXPECT=<<EOF
+Usage: af+ <name> [<type>]   # Hand craft a function (requires `afb+`)
+
+Choices:
+| <type>: l, i, s
+EOF
+RUN
+
+NAME=detailed help callback choices
+FILE=--
+CMDS=<<EOF
+aga??
+EOF
+EXPECT=<<EOF
+Usage: aga <format>=ascii   # Data reference graph
+
+Choices:
+| <format>: ascii, cmd, dot, gml, json, json_disasm, sdb, interactive
+
+Formats:
+| ascii       # Ascii art
+| cmd         # rizin commands
+| dot         # Graphviz dot
+| gml         # Graph Modelling Language
+| json        # json
+| json_disasm # json formatted disassembly
+| sdb         # SDB key-value
+| interactive # Interactive ascii art
+EOF
+RUN
+
+NAME=short help does not enumerate choices
+FILE=--
+CMDS=<<EOF
+af+?
+EOF
+EXPECT=<<EOF
+Usage: af+ <name> [<type>]   # Hand craft a function (requires `afb+`)
+EOF
+RUN
