@@ -1,0 +1,49 @@
+NAME=arF lists the ARM64 core register profile
+FILE=bins/elf/core/core-linux-arm64
+CMDS=<<EOF
+arF~d0 =
+arF~s0 =
+arF~h0 =
+arF~b0 =
+EOF
+EXPECT=<<EOF
+d0 = 0x0000000000000000
+s0 = 0x00000000
+h0 = 0x0000
+b0 = 0x00
+EOF
+RUN
+
+NAME=arF lists the SPARC64 core register profile
+FILE=bins/elf/core/core-linux-sparc64
+CMDS=<<EOF
+arF~f0 =
+arF~f62 =
+EOF
+EXPECT=<<EOF
+f0 = 0x00000000
+f62 = 0x0000000000000000
+EOF
+RUN
+
+NAME=arF reads and writes floating point registers
+FILE==
+CMDS=<<EOF
+e asm.arch=x86
+e asm.bits=64
+arF st0 = 1.5
+arF st0
+arF xmm0l=-2.25
+arF xmm0l
+arF~st0 =
+arF~cwd =
+arF~xmm0 =
+EOF
+EXPECT=<<EOF
+1.5
+-2.25
+st0 = 0x3fffc000000000000000
+cwd = 0x0000
+xmm0 = 0x0000000000000000c002000000000000
+EOF
+RUN

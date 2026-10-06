@@ -830,18 +830,15 @@ RZ_IPI RzCmdStatus rz_regs_prev_handler(RzCore *core, RzReg *reg, int argc, cons
 }
 
 RZ_IPI RzCmdStatus rz_regs_fpu_handler(RzCore *core, RzReg *reg, RzCmdRegSync sync_cb, int argc, const char **argv) {
-	// TODO: everything here needs to be rewritten. It was taken from the old "drf" command.
 	bool failed;
 	if (argc <= 1) {
-		// TODO: Do not use this hack to print fpu register:
-		// By sending a negative value, this is signalling all the way through to the debug plugin,
-		// which then does the printing.
-		// This should be rewritten directly above the RzReg.
-		SYNC_READ(-RZ_REG_TYPE_FPU, failed);
+		// Synchronize the arena, then print the profile's registers above the backend.
+		SYNC_READ(RZ_REG_TYPE_FPU, failed);
 		if (failed) {
 			return RZ_CMD_STATUS_ERROR;
 		}
-		return RZ_CMD_STATUS_OK;
+		RzCmdStateOutput state = { .mode = RZ_OUTPUT_MODE_STANDARD };
+		return show_regs_handler(core, reg, NULL, "fpu", &state);
 	}
 	char *name = rz_str_trim_dup(argv[1]);
 	char *eq = strchr(name, '=');
@@ -919,12 +916,15 @@ RZ_IPI RzCmdStatus rz_regs_fpu_handler(RzCore *core, RzReg *reg, RzCmdRegSync sy
 				goto error;
 			}
 			char *numeric = rz_float_as_dec_string(fnum);
+			rz_float_free(fnum);
+			if (!numeric) {
+				goto error;
+			}
 			rz_cons_printf("%s\n", numeric);
 			free(numeric);
-			rz_float_free(fnum);
 		}
+		ret = RZ_CMD_STATUS_OK;
 	} else {
-		/* note, that negative type forces sync to print the regs from the backend */
 		RZ_LOG_ERROR("core: cannot find multimedia register '%s'\n", name);
 	}
 

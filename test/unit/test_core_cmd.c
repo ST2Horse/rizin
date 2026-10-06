@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: LGPL-3.0-only
 
 #include <rz_core.h>
+#include <rz_analysis.h>
 #include "minunit.h"
 
 static const RzCmdDescArg string_args[] = {
@@ -121,6 +122,147 @@ static bool test_arg_cmd_last_opt(void) {
 	mu_assert_eq(s, RZ_CMD_STATUS_OK, "argument cmd is passed as a single arg");
 	fake_core_free(core);
 	mu_end;
+}
+
+static const char *fpu_profile =
+	"gpr r0 .32 0 0\n"
+	"fpu control .16 0 0\n"
+	"fpu f32 .32 2 0\n"
+	"fpu f64 .64 6 0\n"
+	"fpu f80 .80 14 0\n"
+	"fpu f128 .128 24 0\n"
+	"xmm@fpu vector .128 40 0\n"
+	"fpu byte .8 56 0\n";
+
+static bool test_fpu_regs_list(void) {
+	RzCore *core = rz_core_new();
+	mu_assert("set floating-point register profile",
+		rz_reg_set_profile_string(rz_analysis_get_reg(core->analysis), fpu_profile));
+	rz_config_set_i(core->config, "scr.color", 0);
+	rz_core_cmd0_rzshell(core, "ar control=0x1234");
+	char *output = rz_core_cmd_str(core, "arF");
+	rz_core_free(core);
+	mu_assert_streq(output,
+		"control = 0x1234\n"
+		"f32 = 0x00000000\n"
+		"f64 = 0x0000000000000000\n"
+		"f80 = 0x00000000000000000000\n"
+		"f128 = 0x00000000000000000000000000000000\n"
+		"vector = 0x00000000000000000000000000000000\n"
+		"byte = 0x00\n",
+		"list raw profile values, including controls and vectors");
+	free(output);
+	mu_end;
+}
+
+static bool test_fpu_regs_values(void) {
+	int retval = MU_PASSED;
+	RzCore *core = rz_core_new();
+	char *command = NULL;
+	char *output = NULL;
+	if (!rz_reg_set_profile_string(rz_analysis_get_reg(core->analysis), fpu_profile)) {
+		mu_cleanup_fail(beach, "set floating-point register profile");
+	}
+	const char *names[] = { "f32", "f64", "f80", "f128" };
+	for (size_t i = 0; i < RZ_ARRAY_SIZE(names); i++) {
+		command = rz_str_newf("arF %s = 1.5", names[i]);
+		if (rz_core_cmd0_rzshell(core, command) != RZ_CMD_STATUS_OK) {
+			mu_cleanup_fail(beach, "floating-point assignment returns success");
+		}
+		free(command);
+		command = rz_str_newf("arF %s", names[i]);
+		if (rz_core_cmd0_rzshell(core, command) != RZ_CMD_STATUS_OK) {
+			mu_cleanup_fail(beach, "floating-point read returns success");
+		}
+		output = rz_core_cmd_str(core, command);
+		if (!output || strcmp(output, "1.5\n")) {
+			mu_cleanup_fail(beach, "floating-point value is read back");
+		}
+		free(output);
+		output = NULL;
+		free(command);
+		command = NULL;
+	}
+	if (rz_core_cmd0_rzshell(core, "arF missing") != RZ_CMD_STATUS_ERROR) {
+		mu_cleanup_fail(beach, "unknown register is rejected");
+	}
+	if (rz_core_cmd0_rzshell(core, "arF r0 = 2.5") != RZ_CMD_STATUS_OK) {
+		mu_cleanup_fail(beach, "named general-purpose registers keep their floating-point reinterpretation");
+	}
+	output = rz_core_cmd_str(core, "arF r0");
+	if (!output || strcmp(output, "2.5\n")) {
+		mu_cleanup_fail(beach, "named values preserve existing reinterpretation");
+	}
+	if (rz_core_cmd0_rzshell(core, "arF byte") != RZ_CMD_STATUS_ERROR) {
+		mu_cleanup_fail(beach, "unsupported floating-point width is rejected");
+	}
+
+beach:
+	free(output);
+	free(command);
+	rz_core_free(core);
+	mu_cleanup_end;
+}
+
+typedef struct {
+	int read_type;
+	int reads;
+} FpuSyncContext;
+
+static int fpu_reg_read(RzDebug *dbg, int type, ut8 *buf, int size) {
+	FpuSyncContext *context = dbg->plugin_data;
+	context->read_type = type;
+	context->reads++;
+	if (type != RZ_REG_TYPE_FPU || size < 4) {
+		return 0;
+	}
+	rz_write_le32(buf, 0x3fc00000);
+	return 4;
+}
+
+static bool fpu_sync_fail(RzDebug *dbg, RzReg *reg, bool write) {
+	return false;
+}
+
+static bool test_fpu_regs_sync(void) {
+	int retval = MU_PASSED;
+	RzCore *core = rz_core_new();
+	char *output = NULL;
+	RzDebug *dbg = core->dbg;
+	RzDebugPlugin *old_plugin = dbg->cur;
+	void *old_data = dbg->plugin_data;
+	int old_pid = dbg->pid;
+	RzDebugReason old_reason = dbg->reason;
+	FpuSyncContext context = { 0 };
+	RzDebugPlugin plugin = { .name = "fpu-test", .reg_read = fpu_reg_read };
+	dbg->cur = &plugin;
+	dbg->plugin_data = &context;
+	dbg->pid = 1;
+	dbg->reason.type = RZ_DEBUG_REASON_NONE;
+	rz_config_set_i(core->config, "scr.color", 0);
+	if (!rz_reg_set_profile_string(dbg->reg, "fpu f0 .32 0 0\n")) {
+		mu_cleanup_fail(beach, "set debugger floating-point register profile");
+	}
+	output = rz_core_cmd_str(core, "drF");
+	if (context.read_type != RZ_REG_TYPE_FPU || context.reads != 1) {
+		mu_cleanup_fail(beach, "synchronize a positive FPU type once");
+	}
+	if (!output || strcmp(output, "f0 = 0x3fc00000\n")) {
+		mu_cleanup_fail(beach, "print synchronized register bits");
+	}
+	plugin.sync_registers = fpu_sync_fail;
+	if (rz_core_cmd0_rzshell(core, "drF") != RZ_CMD_STATUS_ERROR) {
+		mu_cleanup_fail(beach, "synchronization failure is reported");
+	}
+
+beach:
+	free(output);
+	dbg->cur = old_plugin;
+	dbg->plugin_data = old_data;
+	dbg->pid = old_pid;
+	dbg->reason = old_reason;
+	rz_core_free(core);
+	mu_cleanup_end;
 }
 
 static bool test_hist_push(void) {
@@ -248,6 +390,9 @@ int all_tests() {
 	mu_run_test(test_arg_cmd_last);
 	mu_run_test(test_arg_cmd_last_with_at);
 	mu_run_test(test_arg_cmd_last_opt);
+	mu_run_test(test_fpu_regs_list);
+	mu_run_test(test_fpu_regs_values);
+	mu_run_test(test_fpu_regs_sync);
 	mu_run_test(test_hist_push);
 	mu_run_test(test_hist_push_seq);
 	mu_run_test(test_hist_push_load);
