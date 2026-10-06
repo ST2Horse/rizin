@@ -592,6 +592,72 @@ bool test_rz_unicode_uppercase_mapping(void) {
 	mu_end;
 }
 
+bool test_rz_unicode_18_categories(void) {
+	// Unicode 18.0.0 adds the Seal range, encoded as First/Last records in the UCD.
+	const RzCodePoint seal[] = { 0x3D000, 0x3E000, 0x3FC3F };
+	for (size_t i = 0; i < RZ_ARRAY_SIZE(seal); i++) {
+		mu_assert_true(rz_unicode_code_point_is_defined(seal[i]), "Seal character should be defined");
+		mu_assert_true(rz_unicode_code_point_is_printable(seal[i]), "Seal character should be printable");
+		mu_assert_true(rz_unicode_code_point_is_legal_decode(seal[i]), "Seal character should be legal to decode");
+		mu_assert_false(rz_unicode_code_point_is_control(seal[i]), "Seal character is not a control");
+		mu_assert_false(rz_unicode_code_point_is_surrogate(seal[i]), "Seal character is not a surrogate");
+		mu_assert_false(rz_unicode_code_point_is_private(seal[i]), "Seal character is not private use");
+		mu_assert_false(rz_unicode_code_point_is_format(seal[i]), "Seal character is not a format character");
+	}
+	mu_assert_false(rz_unicode_code_point_is_defined(0x3CFFF), "Before the Seal range is unassigned");
+	mu_assert_false(rz_unicode_code_point_is_defined(0x3FC40), "After the Seal range is unassigned");
+	mu_assert_false(rz_unicode_code_point_is_printable(0x3FC40), "Unassigned character is not printable");
+
+	// A newly assigned BMP letter and the extension of an existing CJK range.
+	mu_assert_true(rz_unicode_code_point_is_defined(0xA7DD), "New Latin capital letter should be defined");
+	mu_assert_true(rz_unicode_code_point_is_printable(0xA7DD), "New Latin capital letter should be printable");
+	mu_assert_true(rz_unicode_code_point_is_defined(0x2B81E), "New final CJK Extension D character should be defined");
+	mu_assert_false(rz_unicode_code_point_is_defined(0x2B81F), "CJK Extension D padding remains unassigned");
+	mu_assert_eq(RZ_UNICODE_VERSION_MAJOR, 18, "Unicode version should match the tables");
+	mu_assert_eq(RZ_UNICODE_VERSION_MINOR, 0, "Unicode minor version should match the tables");
+	mu_assert_eq(RZ_UNICODE_VERSION_PATCH, 0, "Unicode patch version should match the tables");
+	mu_end;
+}
+
+bool test_rz_unicode_18_case_mapping(void) {
+	const RzCodePoint pairs[][2] = {
+		{ 0xA7DD, 0x0277 }, // A new capital paired with an existing lowercase letter.
+		{ 0xA7E2, 0x027C },
+		{ 0xAB6C, 0xAB4B },
+		{ 0x1DF40, 0x1DF41 }, // New supplementary-plane Latin letters.
+		{ 0x1DF7E, 0x1DF7F },
+	};
+	for (size_t i = 0; i < RZ_ARRAY_SIZE(pairs); i++) {
+		RzUnicodeCaseMapping lower = rz_unicode_code_point_find_lower(pairs[i][0]);
+		RzUnicodeCaseMapping upper = rz_unicode_code_point_find_upper(pairs[i][1]);
+		mu_assert_eq(lower.key, pairs[i][0], "Mismatched lowercase key");
+		mu_assert_eq(lower.val[0], pairs[i][1], "Incorrect Unicode 18 lowercase value");
+		mu_assert_eq(lower.val[1], 0, "Single lowercase mapping should be terminated");
+		mu_assert_eq(lower.val[2], 0, "Single lowercase mapping should have no third value");
+		mu_assert_eq(upper.key, pairs[i][1], "Mismatched uppercase key");
+		mu_assert_eq(upper.val[0], pairs[i][0], "Incorrect Unicode 18 uppercase value");
+		mu_assert_eq(upper.val[1], 0, "Single uppercase mapping should be terminated");
+		mu_assert_eq(upper.val[2], 0, "Single uppercase mapping should have no third value");
+	}
+	mu_end;
+}
+
+bool test_rz_unicode_18_special_casing(void) {
+	// LATIN SMALL LIGATURE LONG S WITH DESCENDER S has unconditional full casing.
+	RzUnicodeCaseMapping upper = rz_unicode_code_point_find_upper(0x1DF95);
+	mu_assert_eq(upper.key, 0x1DF95, "Mismatched special uppercase key");
+	mu_assert_eq(upper.val[0], 0x53, "Special uppercase mapping should start with S");
+	mu_assert_eq(upper.val[1], 0x53, "Special uppercase mapping should end with S");
+	mu_assert_eq(upper.val[2], 0, "Two-code-point mapping should be terminated");
+	RzUnicodeCaseMapping lower = rz_unicode_code_point_find_lower(0x1DF95);
+	mu_assert_false(rz_unicode_case_mapping_is_empty(&lower), "Explicit identity mapping should not be empty");
+	mu_assert_eq(lower.key, 0x1DF95, "Mismatched special lowercase key");
+	mu_assert_eq(lower.val[0], 0x1DF95, "Special lowercase mapping should preserve the character");
+	mu_assert_eq(lower.val[1], 0, "Identity mapping should be terminated");
+	mu_assert_eq(lower.val[2], 0, "Identity mapping should have no third value");
+	mu_end;
+}
+
 bool test_utf8_strlen(void) {
 	const char *str = "ṡome ⅄ṡ good";
 	size_t len = rz_utf8_strlen((const ut8 *)str);
@@ -629,6 +695,9 @@ bool all_tests() {
 	mu_run_test(test_rz_unicode_control);
 	mu_run_test(test_rz_unicode_lowercase_mapping);
 	mu_run_test(test_rz_unicode_uppercase_mapping);
+	mu_run_test(test_rz_unicode_18_categories);
+	mu_run_test(test_rz_unicode_18_case_mapping);
+	mu_run_test(test_rz_unicode_18_special_casing);
 	mu_run_test(test_utf8_strlen);
 
 	return tests_passed != tests_run;
