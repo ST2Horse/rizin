@@ -1,3 +1,51 @@
+NAME=reload saved non-default binary base
+FILE=bins/elf/dectest32
+ARGS=-B0x10000000
+CMDS=<<EOF
+af @ entry0
+Ps .tmp_project_base.rzdb
+o--
+Po .tmp_project_base.rzdb
+pxj 8 @ entry0
+pdq 2 @ entry0
+oml.j @ entry0
+aflq~entry0
+rm .tmp_project_base.rzdb
+EOF
+EXPECT=<<EOF
+[243,15,30,251,49,237,94,137]
+0x100010a0   entry0:
+0x100010a0 endbr32
+0x100010a4 xor ebp, ebp
+{"map":3,"fd":3,"delta":4096,"from":268439552,"to":268440820,"perm":"r-x","name":"fmap.LOAD1"}
+0x100010a0 entry0
+EOF
+RUN
+
+NAME=reload saved zero binary base
+FILE=bins/elf/dectest32
+ARGS=-B0
+CMDS=<<EOF
+af @ entry0
+Ps .tmp_project_zero_base.rzdb
+o--
+Po .tmp_project_zero_base.rzdb
+pxj 8 @ entry0
+pdq 2 @ entry0
+oml.j @ entry0
+aflq~entry0
+rm .tmp_project_zero_base.rzdb
+EOF
+EXPECT=<<EOF
+[243,15,30,251,49,237,94,137]
+0x000010a0   entry0:
+0x000010a0 endbr32
+0x000010a4 xor ebp, ebp
+{"map":3,"fd":3,"delta":4096,"from":4096,"to":5364,"perm":"r-x","name":"fmap.LOAD1"}
+0x000010a0 entry0
+EOF
+RUN
+
 NAME=load with file without moving anything
 FILE=bins/elf/crackme0x05
 CMDS=<<EOF
