@@ -19,7 +19,7 @@
  */
 
 static void file_save(RZ_NONNULL Sdb *db, RZ_NONNULL RzCore *core, RZ_NULLABLE const char *prj_file);
-static bool file_load(RZ_NONNULL Sdb *db, RZ_NONNULL RzCore *core, RZ_NULLABLE const char *prj_file,
+static bool file_load(RZ_NONNULL Sdb *db, RZ_NONNULL RzCore *core, ut64 laddr, RZ_NULLABLE const char *prj_file,
 	RZ_NULLABLE RzSerializeResultInfo *res);
 
 /*
@@ -90,7 +90,12 @@ RZ_API bool rz_serialize_core_load(RZ_NONNULL Sdb *db, RZ_NONNULL RzCore *core, 
 #define SUB(ns, call) RZ_SERIALIZE_SUB_DO(db, subdb, res, ns, call, return false;)
 
 	if (load_bin_io) {
-		SUB("file", file_load(subdb, core, prj_file, res));
+		// Restore the raw map address before opening the file and creating its IO map.
+		// Loading the rest of the configuration afterwards cannot move that map.
+		Sdb *config = sdb_ns(db, "config", false);
+		const char *saved_laddr = config ? sdb_const_get(config, "bin.laddr") : NULL;
+		ut64 laddr = saved_laddr ? strtoull(saved_laddr, NULL, 0) : 0;
+		SUB("file", file_load(subdb, core, laddr, prj_file, res));
 	}
 	SUB("config", rz_serialize_config_load(subdb, core->config, config_exclude_load));
 	SUB("flags", rz_serialize_flag_load(subdb, core->flags, res));
@@ -218,12 +223,12 @@ typedef enum {
 	FILE_LOAD_FAIL
 } FileRet;
 
-static FileRet try_load_file(RZ_NONNULL RzCore *core, const char *file, RZ_NULLABLE RzSerializeResultInfo *res) {
+static FileRet try_load_file(RZ_NONNULL RzCore *core, const char *file, ut64 laddr, RZ_NULLABLE RzSerializeResultInfo *res) {
 	if (!rz_file_is_regular(file)) {
 		return FILE_DOES_NOT_EXIST;
 	}
 
-	RzCoreFile *fh = rz_core_file_open(core, file, RZ_PERM_RX, 0);
+	RzCoreFile *fh = rz_core_file_open(core, file, RZ_PERM_RX, laddr);
 	if (!fh) {
 		RZ_SERIALIZE_ERR(res, "failed re-open file \"%s\" referenced by project", file);
 		return FILE_LOAD_FAIL;
@@ -233,7 +238,7 @@ static FileRet try_load_file(RZ_NONNULL RzCore *core, const char *file, RZ_NULLA
 	return FILE_SUCCESS;
 }
 
-static bool file_load(RZ_NONNULL Sdb *db, RZ_NONNULL RzCore *core, RZ_NULLABLE const char *prj_file,
+static bool file_load(RZ_NONNULL Sdb *db, RZ_NONNULL RzCore *core, ut64 laddr, RZ_NULLABLE const char *prj_file,
 	RZ_NULLABLE RzSerializeResultInfo *res) {
 	rz_core_file_close_fd(core, -1);
 	rz_io_close_all(core->io);
@@ -246,7 +251,7 @@ static bool file_load(RZ_NONNULL Sdb *db, RZ_NONNULL RzCore *core, RZ_NULLABLE c
 		if (prj_dir) {
 			char *file = prj_relative_restore(prj_dir, rel);
 			if (file) {
-				r = try_load_file(core, file, res);
+				r = try_load_file(core, file, laddr, res);
 				free(file);
 			}
 			free(prj_dir);
@@ -258,7 +263,7 @@ static bool file_load(RZ_NONNULL Sdb *db, RZ_NONNULL RzCore *core, RZ_NULLABLE c
 
 	const char *file = sdb_const_get(db, "absolute");
 	if (file) {
-		r = try_load_file(core, file, res);
+		r = try_load_file(core, file, laddr, res);
 	}
 	if (r != FILE_DOES_NOT_EXIST) {
 		return r == FILE_SUCCESS;
@@ -266,7 +271,7 @@ static bool file_load(RZ_NONNULL Sdb *db, RZ_NONNULL RzCore *core, RZ_NULLABLE c
 
 	file = sdb_const_get(db, "raw");
 	if (file) {
-		r = try_load_file(core, file, res);
+		r = try_load_file(core, file, laddr, res);
 	}
 	if (r != FILE_DOES_NOT_EXIST) {
 		return r == FILE_SUCCESS;

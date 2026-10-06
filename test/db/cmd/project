@@ -419,3 +419,54 @@ nth       addr  vt_offset type    name
 EOF
 EXPECT_ERR=
 RUN
+
+NAME=raw project reload preserves a nonzero map address
+FILE=bins/other/0x3
+ARGS=-a arm -b 16 -m 0x2400
+CMDS=<<EOF
+f raw_marker 1 @ 0x2402
+s 0x2401
+Ps .tmp_raw_map_nonzero.rzdb
+o--
+Po .tmp_raw_map_nonzero.rzdb
+%v $M
+%v $MM
+p8 3 @ 0x2400
+pdq 1 @ 0x2400
+s
+%v raw_marker
+rm .tmp_raw_map_nonzero.rzdb
+EOF
+EXPECT=<<EOF
+0x2400
+0x3
+6a690a
+0x00002400 ldr r2, [r5, 0x14]
+0x2401
+0x2402
+EOF
+EXPECT_ERR=
+RUN
+
+NAME=raw project reload preserves an explicit zero map address
+FILE=bins/other/0x3
+ARGS=-a arm -b 16 -m 0
+CMDS=<<EOF
+Ps .tmp_raw_map_zero.rzdb
+o--
+e bin.laddr=0x4800
+Po .tmp_raw_map_zero.rzdb
+%v $M
+%v $MM
+p8 3 @ 0
+pdq 1 @ 0
+rm .tmp_raw_map_zero.rzdb
+EOF
+EXPECT=<<EOF
+0x0
+0x3
+6a690a
+0x00000000 ldr r2, [r5, 0x14]
+EOF
+EXPECT_ERR=
+RUN
