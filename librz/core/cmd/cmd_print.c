@@ -6452,6 +6452,107 @@ RZ_IPI RzCmdStatus rz_cmd_print_raw_handler(RzCore *core, int argc, const char *
 	return RZ_CMD_STATUS_OK;
 }
 
+/** Evaluate an unsigned integer expression without silently narrowing its value. */
+static bool print_raw_file_number(RzCore *core, const char *arg, ut64 maximum, ut64 *result) {
+	RzNumValue value;
+	rz_num_value_init(&value);
+	// Unresolved identifiers evaluate to zero but set the legacy error counter.
+	core->num->nc.errors = 0;
+	bool ok = rz_core_math(core, arg, NULL, &value, NULL);
+	ok = ok && !core->num->nc.errors && value.kind == RZ_NUM_KIND_UT64 && value.val.n <= maximum;
+	if (ok) {
+		*result = value.val.n;
+	}
+	rz_num_value_fini(&value);
+	return ok;
+}
+
+/**
+ * Export a memory region in bounded chunks, without changing the core seek or memory.
+ * With append enabled, an omitted offset means EOF; an explicit offset is in the file.
+ * Input and the first read are checked before opening a file that may be truncated.
+ * Later read, write, close or interruption errors can leave a partial export.
+ */
+static RzCmdStatus print_raw_file(RzCore *core, int argc, const char **argv, bool append) {
+	ut64 start, size, offset = 0;
+	bool has_offset = append && argc > 4;
+	ut64 file_maximum = UT64_MAX >> 1;
+	if (!print_raw_file_number(core, argv[1], UT64_MAX, &start) ||
+		!print_raw_file_number(core, argv[2], file_maximum, &size) ||
+		(has_offset && !print_raw_file_number(core, argv[4], file_maximum, &offset))) {
+		RZ_LOG_ERROR("core: expected unsigned integer start, size and file offset\n");
+		return RZ_CMD_STATUS_ERROR;
+	}
+	if (size > UT64_MAX - start || (has_offset && size > file_maximum - offset)) {
+		RZ_LOG_ERROR("core: export range overflows\n");
+		return RZ_CMD_STATUS_ERROR;
+	}
+
+	ut8 buffer[4096];
+	size_t chunk = RZ_MIN(size, sizeof(buffer));
+	if (chunk && rz_io_nread_at(core->io, start, buffer, chunk) != (int)chunk) {
+		RZ_LOG_ERROR("core: cannot read the export region at 0x%08" PFMT64x "\n", start);
+		return RZ_CMD_STATUS_ERROR;
+	}
+	const char *filename = argv[3];
+	FILE *file = rz_sys_fopen(filename, has_offset ? "r+b" : append ? "ab" : "wb");
+	if (!file && has_offset && errno == ENOENT) {
+		file = rz_sys_fopen(filename, "w+b");
+	}
+	if (!file) {
+		RZ_LOG_ERROR("core: cannot open '%s' for writing\n", filename);
+		return RZ_CMD_STATUS_ERROR;
+	}
+
+	RzCmdStatus status = RZ_CMD_STATUS_OK;
+	if (has_offset) {
+#if __WINDOWS__
+		int seek_error = _fseeki64(file, (st64)offset, SEEK_SET);
+#else
+		int seek_error = fseeko(file, (off_t)offset, SEEK_SET);
+#endif
+		if (seek_error) {
+			RZ_LOG_ERROR("core: cannot seek in '%s'\n", filename);
+			status = RZ_CMD_STATUS_ERROR;
+			goto close_file;
+		}
+	}
+	rz_cons_break_push(NULL, NULL);
+	for (ut64 written = 0; written < size; written += chunk) {
+		chunk = RZ_MIN(size - written, sizeof(buffer));
+		if (rz_cons_is_breaked()) {
+			status = RZ_CMD_STATUS_ERROR;
+			break;
+		}
+		if (written && rz_io_nread_at(core->io, start + written, buffer, chunk) != (int)chunk) {
+			RZ_LOG_ERROR("core: cannot read the export region at 0x%08" PFMT64x "\n", start + written);
+			status = RZ_CMD_STATUS_ERROR;
+			break;
+		}
+		if (fwrite(buffer, 1, chunk, file) != chunk) {
+			RZ_LOG_ERROR("core: cannot write to '%s'\n", filename);
+			status = RZ_CMD_STATUS_ERROR;
+			break;
+		}
+	}
+	rz_cons_break_pop();
+
+close_file:
+	if (fclose(file)) {
+		RZ_LOG_ERROR("core: cannot close '%s' after writing\n", filename);
+		status = RZ_CMD_STATUS_ERROR;
+	}
+	return status;
+}
+
+RZ_IPI RzCmdStatus rz_cmd_print_raw_file_handler(RzCore *core, int argc, const char **argv) {
+	return print_raw_file(core, argc, argv, false);
+}
+
+RZ_IPI RzCmdStatus rz_cmd_print_raw_file_append_handler(RzCore *core, int argc, const char **argv) {
+	return print_raw_file(core, argc, argv, true);
+}
+
 RZ_IPI RzCmdStatus rz_cmd_print_raw_colors_handler(RzCore *core, int argc, const char **argv) {
 	int len = argc > 1 ? rz_num_math(core->num, argv[1]) : core->blocksize;
 	if (len < 0) {

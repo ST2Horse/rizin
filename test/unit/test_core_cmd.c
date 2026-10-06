@@ -243,6 +243,152 @@ beach:
 	mu_cleanup_end;
 }
 
+static RzCmdStatus raw_file_command(RzCore *core, const char *command,
+	const char *start, const char *size, const char *filename, const char *offset) {
+	char *cmd = rz_str_newf("%s %s %s \"%s\" %s", command, start, size,
+		filename, offset ? offset : "");
+	if (!cmd) {
+		return RZ_CMD_STATUS_ERROR;
+	}
+	RzCmdStatus status = rz_core_cmd0_rzshell(core, cmd);
+	free(cmd);
+	return status;
+}
+
+static bool test_print_raw_file_errors(void) {
+	int retval = MU_PASSED;
+	RzCore *core = rz_core_new();
+	char *filename = rz_file_temp("rz-prf-errors");
+	char *missing = filename ? rz_str_newf("%s/missing.bin", filename) : NULL;
+	char *contents = NULL;
+	const ut8 original[] = { 0x41, 0x00, 0xff, 0x20 };
+	const char *invalid[][3] = {
+		{ "unknown_export_address", "1", NULL },
+		{ "1junk", "1", NULL },
+		{ "0", "1/0", NULL },
+		{ "0", "-1", NULL },
+		{ "0", "1.5", NULL },
+		{ "0x10000000000000000", "1", NULL },
+		{ "0xffffffffffffffff", "2", NULL },
+		{ "0", "0x10000000000000000", NULL },
+		{ "0", "1", "-1" },
+		{ "0", "1", "0x8000000000000000" },
+		{ "0", "2", "0x7fffffffffffffff" },
+		{ "31", "2", NULL },
+	};
+	if (!core || !filename || !missing ||
+		!rz_core_file_open(core, "malloc://32", RZ_PERM_RW, 0) ||
+		!rz_file_dump(filename, original, sizeof(original), false)) {
+		mu_cleanup_fail(cleanup, "raw file test setup");
+	}
+	core->io->va = false;
+	for (size_t i = 0; i < RZ_ARRAY_SIZE(invalid); i++) {
+		const char *command = invalid[i][2] ? "prfa" : "prf";
+		RzCmdStatus status = raw_file_command(core, command, invalid[i][0], invalid[i][1],
+			filename, invalid[i][2]);
+		if (status != RZ_CMD_STATUS_ERROR) {
+			eprintf("unexpected status %d for start=%s size=%s offset=%s\n", status,
+				invalid[i][0], invalid[i][1], invalid[i][2] ? invalid[i][2] : "EOF");
+			mu_cleanup_fail(cleanup, "invalid input or short read must fail");
+		}
+		size_t size = 0;
+		contents = rz_file_slurp(filename, &size);
+		if (!contents || size != sizeof(original) || memcmp(contents, original, size)) {
+			mu_cleanup_fail(cleanup, "validation and initial read failures must preserve the file");
+		}
+		RZ_FREE(contents);
+	}
+	if (raw_file_command(core, "prf", "0", "1", missing, NULL) != RZ_CMD_STATUS_ERROR ||
+		raw_file_command(core, "prfa", "0", "1", missing, "0") != RZ_CMD_STATUS_ERROR) {
+		mu_cleanup_fail(cleanup, "file open failures must fail");
+	}
+	if (raw_file_command(core, "prf", "0", "1", filename, NULL) != RZ_CMD_STATUS_OK ||
+		rz_file_size(filename) != 1) {
+		mu_cleanup_fail(cleanup, "an invalid expression must not poison later valid exports");
+	}
+
+cleanup:
+	free(contents);
+	if (filename) {
+		rz_file_rm(filename);
+	}
+	free(missing);
+	free(filename);
+	rz_core_free(core);
+	mu_cleanup_end;
+}
+
+static bool test_print_raw_file_zero_size(void) {
+	int retval = MU_PASSED;
+	RzCore *core = rz_core_new();
+	char *filename = rz_file_temp("rz-prf-zero");
+	char *contents = NULL;
+	const ut8 original[] = { 0, 0xff, 0x20 };
+	size_t size = 0;
+	if (!core || !filename || !rz_file_dump(filename, original, sizeof(original), false)) {
+		mu_cleanup_fail(cleanup, "zero size test setup");
+	}
+	if (raw_file_command(core, "prfa", "0", "0", filename, NULL) != RZ_CMD_STATUS_OK ||
+		raw_file_command(core, "prfa", "0", "0", filename, "8") != RZ_CMD_STATUS_OK) {
+		mu_cleanup_fail(cleanup, "zero size append must succeed without reading memory");
+	}
+	contents = rz_file_slurp(filename, &size);
+	if (!contents || size != sizeof(original) || memcmp(contents, original, size)) {
+		mu_cleanup_fail(cleanup, "zero size append must preserve existing bytes and file size");
+	}
+	RZ_FREE(contents);
+	if (raw_file_command(core, "prf", "0", "0", filename, NULL) != RZ_CMD_STATUS_OK ||
+		rz_file_size(filename) != 0) {
+		mu_cleanup_fail(cleanup, "zero size export must truncate the file");
+	}
+	rz_file_rm(filename);
+	if (raw_file_command(core, "prfa", "0", "0", filename, NULL) != RZ_CMD_STATUS_OK ||
+		!rz_file_exists(filename) || rz_file_size(filename) != 0) {
+		mu_cleanup_fail(cleanup, "zero size append must create an empty file");
+	}
+
+cleanup:
+	free(contents);
+	if (filename) {
+		rz_file_rm(filename);
+	}
+	free(filename);
+	rz_core_free(core);
+	mu_cleanup_end;
+}
+
+static bool test_print_raw_file_write_error(void) {
+	int retval = MU_PASSED;
+#if !__WINDOWS__
+	RzCore *core = rz_core_new();
+	char *filename = rz_file_temp("rz-prf-full");
+	if (!core || !filename || !rz_core_file_open(core, "malloc://32", RZ_PERM_RW, 0)) {
+		mu_cleanup_fail(cleanup, "write error test setup");
+	}
+	core->io->va = false;
+	if (access("/dev/full", F_OK)) {
+		printf("SKIP: /dev/full is unavailable\n");
+		goto cleanup;
+	}
+	if (raw_file_command(core, "prf", "0", "1", filename, NULL) != RZ_CMD_STATUS_OK ||
+		rz_file_size(filename) != 1) {
+		mu_cleanup_fail(cleanup, "normal export must succeed before testing a write failure");
+	}
+	if (raw_file_command(core, "prf", "0", "1", "/dev/full", NULL) != RZ_CMD_STATUS_ERROR) {
+		mu_cleanup_fail(cleanup, "buffered write or close failures must fail");
+	}
+cleanup:
+	if (filename) {
+		rz_file_rm(filename);
+	}
+	free(filename);
+	rz_core_free(core);
+#else
+	printf("SKIP: /dev/full is unavailable on Windows\n");
+#endif
+	mu_cleanup_end;
+}
+
 int all_tests() {
 	mu_run_test(test_arg_cmd);
 	mu_run_test(test_arg_cmd_last);
@@ -251,6 +397,9 @@ int all_tests() {
 	mu_run_test(test_hist_push);
 	mu_run_test(test_hist_push_seq);
 	mu_run_test(test_hist_push_load);
+	mu_run_test(test_print_raw_file_errors);
+	mu_run_test(test_print_raw_file_zero_size);
+	mu_run_test(test_print_raw_file_write_error);
 	return tests_passed != tests_run;
 }
 

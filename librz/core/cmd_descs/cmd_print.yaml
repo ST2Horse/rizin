@@ -1341,6 +1341,37 @@ commands:
           - name: len
             type: RZ_CMD_ARG_TYPE_RZNUM
             optional: true
+      - name: prf
+        summary: Export raw bytes to a file (create or overwrite)
+        description: >-
+          Export size bytes starting at start without changing the current seek or memory.
+          A zero size creates or truncates an empty file. Only fully readable memory is exported.
+        cname: cmd_print_raw_file
+        args:
+          - name: start
+            type: RZ_CMD_ARG_TYPE_RZNUM
+          - name: size
+            type: RZ_CMD_ARG_TYPE_RZNUM
+          - name: filename
+            type: RZ_CMD_ARG_TYPE_FILE
+      - name: prfa
+        summary: Export raw bytes to a file (append or write at a file offset)
+        description: >-
+          If offset is omitted, append at EOF. Otherwise, write at that destination file offset,
+          preserving other bytes. An offset beyond EOF creates a zero-filled gap.
+          A missing file is created. A zero size leaves existing bytes and file size unchanged.
+          Only fully readable memory is exported; the current seek and memory are unchanged.
+        cname: cmd_print_raw_file_append
+        args:
+          - name: start
+            type: RZ_CMD_ARG_TYPE_RZNUM
+          - name: size
+            type: RZ_CMD_ARG_TYPE_RZNUM
+          - name: filename
+            type: RZ_CMD_ARG_TYPE_FILE
+          - name: offset
+            type: RZ_CMD_ARG_TYPE_RZNUM
+            optional: true
       - name: prg
         summary: Print uncompressed data
         subcommands:

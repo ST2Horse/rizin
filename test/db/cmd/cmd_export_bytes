@@ -1,0 +1,140 @@
+NAME=prf creates a raw byte file and preserves seek and memory
+FILE=malloc://32
+CMDS=<<EOF
+wx 4100ff204243 @ 4
+s 12
+prf 4 6 .rz-prf-create.bin
+s
+p8 6 @ 4
+o .rz-prf-create.bin
+p8 6 @ 0
+rm .rz-prf-create.bin
+EOF
+EXPECT=<<EOF
+0xc
+4100ff204243
+4100ff204243
+EOF
+EXPECT_ERR=
+RUN
+
+NAME=prf overwrites and truncates an existing file
+FILE=malloc://32
+CMDS=<<EOF
+wx aabbccddeeff @ 0
+prf 0 6 .rz-prf-overwrite.bin
+prf 2 2 .rz-prf-overwrite.bin
+o .rz-prf-overwrite.bin
+%v $s
+p8 2 @ 0
+rm .rz-prf-overwrite.bin
+EOF
+EXPECT=<<EOF
+0x2
+ccdd
+EOF
+EXPECT_ERR=
+RUN
+
+NAME=prfa creates and appends raw bytes
+FILE=malloc://32
+CMDS=<<EOF
+wx 00ff20414243 @ 0
+prfa 0 3 .rz-prfa-append.bin
+prfa 3 3 .rz-prfa-append.bin
+o .rz-prfa-append.bin
+%v $s
+p8 6 @ 0
+rm .rz-prfa-append.bin
+EOF
+EXPECT=<<EOF
+0x6
+00ff20414243
+EOF
+EXPECT_ERR=
+RUN
+
+NAME=prfa explicit destination offset preserves the rest of the file
+FILE=malloc://32
+CMDS=<<EOF
+wx 11223344556600ff @ 0
+prf 0 6 .rz-prfa-offset.bin
+prfa 6 2 .rz-prfa-offset.bin 2
+prfa 6 1 .rz-prfa-offset.bin 0
+o .rz-prfa-offset.bin
+%v $s
+p8 6 @ 0
+rm .rz-prfa-offset.bin
+EOF
+EXPECT=<<EOF
+0x6
+002200ff5566
+EOF
+EXPECT_ERR=
+RUN
+
+NAME=prfa explicit destination offset creates a file with a zero filled gap
+FILE=malloc://32
+CMDS=<<EOF
+wx ff00 @ 0
+prfa 0 2 .rz-prfa-gap.bin 4
+o .rz-prfa-gap.bin
+%v $s
+p8 6 @ 0
+rm .rz-prfa-gap.bin
+EOF
+EXPECT=<<EOF
+0x6
+00000000ff00
+EOF
+EXPECT_ERR=
+RUN
+
+NAME=prf accepts a filename containing spaces
+FILE=malloc://32
+CMDS=<<EOF
+wx 00ff2041 @ 0
+prf 0 4 ".rz prf space.bin"
+o ".rz prf space.bin"
+p8 4 @ 0
+rm ".rz prf space.bin"
+EOF
+EXPECT=<<EOF
+00ff2041
+EOF
+EXPECT_ERR=
+RUN
+
+NAME=prf exports across chunk boundaries with numeric expressions
+FILE=malloc://8192
+CMDS=<<EOF
+wx 00ff2041 @ 4094
+prf 2-2 4096+2 .rz-prf-chunks.bin
+o .rz-prf-chunks.bin
+%v $s
+p8 4 @ 4094
+p8 2 @ 0
+rm .rz-prf-chunks.bin
+EOF
+EXPECT=<<EOF
+0x1002
+00ff2041
+0000
+EOF
+EXPECT_ERR=
+RUN
+
+NAME=prf and prfa help describes raw bytes and destination offsets
+FILE=malloc://32
+CMDS=<<EOF
+prf?~Usage
+prfa?~Usage
+prfa?~EOF
+EOF
+EXPECT=<<EOF
+Usage: prf <start> <size> <filename>   # Export raw bytes to a file (create or overwrite)
+Usage: prfa <start> <size> <filename> [<offset>]   # Export raw bytes to a file (append or write at a file offset)
+If offset is omitted, append at EOF. Otherwise, write at that destination file offset, preserving other bytes. An offset beyond EOF creates a zero-filled gap. A missing file is created. A zero size leaves existing bytes and file size unchanged. Only fully readable memory is exported; the current seek and memory are unchanged.
+EOF
+EXPECT_ERR=
+RUN

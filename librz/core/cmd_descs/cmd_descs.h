@@ -2229,6 +2229,10 @@ RZ_IPI RzCmdStatus rz_print_operation_xor_handler(RzCore *core, int argc, const 
 RZ_IPI RzCmdStatus rz_cmd_print_raw_handler(RzCore *core, int argc, const char **argv);
 // "prc"
 RZ_IPI RzCmdStatus rz_cmd_print_raw_colors_handler(RzCore *core, int argc, const char **argv);
+// "prf"
+RZ_IPI RzCmdStatus rz_cmd_print_raw_file_handler(RzCore *core, int argc, const char **argv);
+// "prfa"
+RZ_IPI RzCmdStatus rz_cmd_print_raw_file_append_handler(RzCore *core, int argc, const char **argv);
 // "prg"
 RZ_IPI RzCmdStatus rz_cmd_print_raw_gunzip_handler(RzCore *core, int argc, const char **argv);
 // "prgv"

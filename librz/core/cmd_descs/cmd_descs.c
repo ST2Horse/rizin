@@ -789,6 +789,8 @@ static const RzCmdDescArg print_operation_sub_args[2];
 static const RzCmdDescArg print_operation_xor_args[2];
 static const RzCmdDescArg cmd_print_raw_args[2];
 static const RzCmdDescArg cmd_print_raw_colors_args[2];
+static const RzCmdDescArg cmd_print_raw_file_args[4];
+static const RzCmdDescArg cmd_print_raw_file_append_args[5];
 static const RzCmdDescArg cmd_print_raw_string_args[2];
 static const RzCmdDescArg print_string_args[3];
 static const RzCmdDescArg print_pascal_string_args[2];
@@ -17190,6 +17192,61 @@ static const RzCmdDescHelp cmd_print_raw_colors_help = {
 	.args = cmd_print_raw_colors_args,
 };
 
+static const RzCmdDescArg cmd_print_raw_file_args[] = {
+	{
+		.name = "start",
+		.type = RZ_CMD_ARG_TYPE_RZNUM,
+
+	},
+	{
+		.name = "size",
+		.type = RZ_CMD_ARG_TYPE_RZNUM,
+
+	},
+	{
+		.name = "filename",
+		.type = RZ_CMD_ARG_TYPE_FILE,
+
+	},
+	{ 0 },
+};
+static const RzCmdDescHelp cmd_print_raw_file_help = {
+	.summary = "Export raw bytes to a file (create or overwrite)",
+	.description = "Export size bytes starting at start without changing the current seek or memory. A zero size creates or truncates an empty file. Only fully readable memory is exported.",
+	.args = cmd_print_raw_file_args,
+};
+
+static const RzCmdDescArg cmd_print_raw_file_append_args[] = {
+	{
+		.name = "start",
+		.type = RZ_CMD_ARG_TYPE_RZNUM,
+
+	},
+	{
+		.name = "size",
+		.type = RZ_CMD_ARG_TYPE_RZNUM,
+
+	},
+	{
+		.name = "filename",
+		.type = RZ_CMD_ARG_TYPE_FILE,
+
+	},
+	{
+		.name = "offset",
+		.type = RZ_CMD_ARG_TYPE_RZNUM,
+		.flags = RZ_CMD_ARG_FLAG_LAST,
+		.optional = true,
+
+	},
+	{ 0 },
+};
+static const RzCmdDescHelp cmd_print_raw_file_append_help = {
+	.summary = "Export raw bytes to a file (append or write at a file offset)",
+	.description = "If offset is omitted, append at EOF. Otherwise, write at that destination file offset, preserving other bytes. An offset beyond EOF creates a zero-filled gap. A missing file is created. A zero size leaves existing bytes and file size unchanged. Only fully readable memory is exported; the current seek and memory are unchanged.",
+	.args = cmd_print_raw_file_append_args,
+};
+
 static const RzCmdDescHelp prg_help = {
 	.summary = "Print uncompressed data",
 };
@@ -25783,6 +25840,12 @@ RZ_IPI void rzshell_cmddescs_init(RzCore *core) {
 	rz_warn_if_fail(pr_cd);
 	RzCmdDesc *cmd_print_raw_colors_cd = rz_cmd_desc_argv_new(core->rcmd, pr_cd, "prc", rz_cmd_print_raw_colors_handler, &cmd_print_raw_colors_help);
 	rz_warn_if_fail(cmd_print_raw_colors_cd);
+
+	RzCmdDesc *cmd_print_raw_file_cd = rz_cmd_desc_argv_new(core->rcmd, pr_cd, "prf", rz_cmd_print_raw_file_handler, &cmd_print_raw_file_help);
+	rz_warn_if_fail(cmd_print_raw_file_cd);
+
+	RzCmdDesc *cmd_print_raw_file_append_cd = rz_cmd_desc_argv_new(core->rcmd, pr_cd, "prfa", rz_cmd_print_raw_file_append_handler, &cmd_print_raw_file_append_help);
+	rz_warn_if_fail(cmd_print_raw_file_append_cd);
 
 	RzCmdDesc *prg_cd = rz_cmd_desc_group_new(core->rcmd, pr_cd, "prg", rz_cmd_print_raw_gunzip_handler, &cmd_print_raw_gunzip_help, &prg_help);
 	rz_warn_if_fail(prg_cd);
