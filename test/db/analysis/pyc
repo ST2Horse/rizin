@@ -1,0 +1,227 @@
+# Use real code objects: the PYC analysis plugin gets their bounds from the bin loader.
+NAME=PYC 2.7: variable instruction lengths and code-object boundaries
+FILE=bins/pyc/py27.pyc
+CMDS=<<EOF
+ao 2 @ 0x2f~address:,bytes:,size:,type:,stackptr:
+ao 1 @ 0x33~address:,bytes:,size:,stackptr:
+ao 1 @ 0x36~address:,bytes:,size:,type:,stackptr:
+af @ 0x1e
+afbj @ 0x1e
+afij @ 0x1e~{[0].maxbound}
+af @ 0x52
+afbj @ 0x52
+afij @ 0x52~{[0].maxbound}
+EOF
+EXPECT=<<EOF
+address: 0x2f
+bytes: 830000
+size: 3
+type: icall
+address: 0x32
+bytes: 01
+size: 1
+type: pop
+stackptr: -1
+address: 0x33
+bytes: 640200
+size: 3
+stackptr: 1
+address: 0x36
+bytes: 53
+size: 1
+type: ret
+stackptr: -1
+[{"opaddr":30,"addr":30,"size":25,"inputs":0,"outputs":0,"ninstr":11,"traced":false}]
+55
+[{"opaddr":82,"addr":82,"size":9,"inputs":0,"outputs":0,"ninstr":5,"traced":false}]
+91
+EOF
+REGEXP_FILTER_ERR=<<EOF
+free_object\s\(0\)
+EOF
+EXPECT_ERR=<<EOF
+free_object (0)
+EOF
+RUN
+
+NAME=PYC 3.6: wordcode call, addition and return stack effects
+FILE=bins/pyc/py36.pyc
+CMDS=<<EOF
+ao 1 @ 0xfed~address:,bytes:,size:,type:,stackptr:
+ao 2 @ 0xff7~address:,bytes:,size:,type:,stackptr:
+EOF
+EXPECT=<<EOF
+address: 0xfed
+bytes: 8302
+size: 2
+type: icall
+address: 0xff7
+bytes: 1700
+size: 2
+type: add
+stackptr: -1
+address: 0xff9
+bytes: 5300
+size: 2
+type: ret
+stackptr: -1
+EOF
+REGEXP_FILTER_ERR=<<EOF
+free_object\s\(0\)
+EOF
+EXPECT_ERR=<<EOF
+free_object (0)
+EOF
+RUN
+
+# POP_JUMP_IF_FALSE 30: code-object base 0x24bf + 30 bytes = 0x24dd.
+NAME=PYC 3.6: absolute conditional branch and both return blocks
+FILE=bins/pyc/py36.pyc
+CMDS=<<EOF
+ao 1 @ 0x24cf~address:,bytes:,size:,type:,jump:,fail:
+af @ 0x24bf
+afbj @ 0x24bf
+afij @ 0x24bf~{[0].maxbound}
+EOF
+EXPECT=<<EOF
+address: 0x24cf
+bytes: 721e
+size: 2
+type: cjmp
+jump: 0x000024dd
+fail: 0x000024d1
+[{"jump":9437,"fail":9425,"opaddr":9407,"addr":9407,"size":18,"inputs":0,"outputs":2,"ninstr":9,"traced":false},{"opaddr":9425,"addr":9425,"size":12,"inputs":1,"outputs":0,"ninstr":6,"traced":false},{"opaddr":9437,"addr":9437,"size":4,"inputs":1,"outputs":0,"ninstr":2,"traced":false}]
+9441
+EOF
+REGEXP_FILTER_ERR=<<EOF
+free_object\s\(0\)
+EOF
+EXPECT_ERR=<<EOF
+free_object (0)
+EOF
+RUN
+
+# FOR_ITER 10 exits at 0x1eb9 + 2 + 2*10; JUMP_ABSOLUTE 3 uses base + 2*3.
+NAME=PYC 3.10: instruction-offset loop targets and control flow
+FILE=bins/pyc/py310.pyc
+CMDS=<<EOF
+ao 1 @ 0x1eb9~address:,bytes:,size:,type:,jump:,fail:
+ao 1 @ 0x1ecd~address:,bytes:,size:,type:,jump:
+ao 1 @ 0x1ed1~address:,bytes:,size:,type:,stackptr:
+af @ 0x1eb3
+afbj @ 0x1eb3
+afij @ 0x1eb3~{[0].maxbound}
+EOF
+EXPECT=<<EOF
+address: 0x1eb9
+bytes: 5d0a
+size: 2
+type: cjmp
+jump: 0x00001ebb
+fail: 0x00001ecf
+address: 0x1ecd
+bytes: 7103
+size: 2
+type: jmp
+jump: 0x00001eb9
+address: 0x1ed1
+bytes: 5300
+size: 2
+type: ret
+stackptr: -1
+[{"jump":7865,"opaddr":7859,"addr":7859,"size":6,"inputs":0,"outputs":1,"ninstr":3,"traced":false},{"jump":7867,"fail":7887,"opaddr":7865,"addr":7865,"size":2,"inputs":2,"outputs":2,"ninstr":1,"traced":false},{"jump":7865,"opaddr":7867,"addr":7867,"size":20,"inputs":1,"outputs":1,"ninstr":10,"traced":false},{"opaddr":7887,"addr":7887,"size":4,"inputs":1,"outputs":0,"ninstr":2,"traced":false}]
+7891
+EOF
+REGEXP_FILTER_ERR=<<EOF
+free_object\s\(0\)
+EOF
+EXPECT_ERR=<<EOF
+free_object (0)
+EOF
+RUN
+
+# JUMP_BACKWARD 38: 0x334d + 2 - 2*38 = FOR_ITER at 0x3303.
+# Preserve the initial RESUME when checking the complete code-object boundary.
+NAME=PYC 3.11: resume, inline cache, call and backward loop analysis
+FILE=bins/pyc/py311.pyc
+CMDS=<<EOF
+e analysis.nopskip=false
+ao 1 @ 0x32f3~address:,bytes:,size:,type:
+ao 1 @ 0x32f9~address:,bytes:,size:,type:
+ao 1 @ 0x3303~address:,bytes:,size:,type:,jump:,fail:
+ao 1 @ 0x3333~address:,bytes:,size:,type:
+ao 1 @ 0x334d~address:,bytes:,size:,type:,jump:
+af @ 0x32f3
+afbj @ 0x32f3
+afij @ 0x32f3~{[0].maxbound}
+EOF
+EXPECT=<<EOF
+address: 0x32f3
+bytes: 9700
+size: 2
+type: nop
+address: 0x32f9
+bytes: 0000
+size: 2
+type: nop
+address: 0x3303
+bytes: 5d25
+size: 2
+type: cjmp
+jump: 0x00003305
+fail: 0x0000334f
+address: 0x3333
+bytes: ab01
+size: 2
+type: icall
+address: 0x334d
+bytes: 8c26
+size: 2
+type: jmp
+jump: 0x00003303
+[{"jump":13059,"opaddr":13043,"addr":13043,"size":16,"inputs":0,"outputs":1,"ninstr":8,"traced":false},{"jump":13061,"fail":13135,"opaddr":13059,"addr":13059,"size":2,"inputs":2,"outputs":2,"ninstr":1,"traced":false},{"jump":13059,"opaddr":13061,"addr":13061,"size":74,"inputs":1,"outputs":1,"ninstr":37,"traced":false},{"opaddr":13135,"addr":13135,"size":4,"inputs":1,"outputs":0,"ninstr":2,"traced":false}]
+13139
+EOF
+REGEXP_FILTER_ERR=<<EOF
+free_object\s\(0\)
+EOF
+EXPECT_ERR=<<EOF
+free_object (0)
+EOF
+RUN
+
+NAME=PYC 3.14: renumbered opcodes and return boundary
+FILE=bins/pyc/pyc314.pyc
+CMDS=<<EOF
+e analysis.nopskip=false
+ao 1 @ 0x32ee~address:,bytes:,size:,type:
+ao 1 @ 0x32f0~address:,bytes:,size:,stackptr:
+ao 1 @ 0x32f2~address:,bytes:,size:,type:,stackptr:
+af @ 0x32ee
+afbj @ 0x32ee
+afij @ 0x32ee~{[0].maxbound}
+EOF
+EXPECT=<<EOF
+address: 0x32ee
+bytes: 8000
+size: 2
+type: nop
+address: 0x32f0
+bytes: 5200
+size: 2
+stackptr: 1
+address: 0x32f2
+bytes: 2300
+size: 2
+type: ret
+stackptr: -1
+[{"opaddr":13038,"addr":13038,"size":6,"inputs":0,"outputs":0,"ninstr":3,"traced":false}]
+13044
+EOF
+REGEXP_FILTER_ERR=<<EOF
+free_object\s\(0\)
+EOF
+EXPECT_ERR=<<EOF
+free_object (0)
+EOF
+RUN
