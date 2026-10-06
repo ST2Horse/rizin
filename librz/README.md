@@ -6,6 +6,9 @@ tools present in [binrz](../binrz/) are based on the libraries present in this
 directory, so getting a general idea of what these libraries are and do is key
 to navigate the codebase.
 
+New contributors can follow [the developer onboarding guide](../doc/developer-onboarding.md)
+to see how these modules cooperate during command execution and where to test a change.
+
 - [RzUtil](util/README.md)
 - [RzIO](io/README.md)
 - [RzBin](bin/README.md)

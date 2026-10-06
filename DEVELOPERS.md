@@ -387,6 +387,9 @@ RZ_PACKED(typedef structmystruct {
 
 ## Modules
 
+For a guided reading order and two command traces, start with
+[the developer onboarding guide](doc/developer-onboarding.md).
+
 The Rizin code base is modularized into different libraries that are
 found in `librz/` directory. The `binrz/` directory contains the programs
 which use the libraries.
