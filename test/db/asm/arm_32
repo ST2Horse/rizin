@@ -12,6 +12,32 @@ aB "asrne r0, r4, 31" c40fa011
 a "beq 8" 0000000a
 aB "biceq r3, r3, 7" 0730c303
 a "blne 0x1900" 3e06001b
+a "b 0x7ffffffc" feffffea 0x7ffffffc
+a "b 0x80000000" feffffea 0x80000000
+a "b 0xfffffffc" feffffea 0xfffffffc
+a "b 0x80000000" ffffffea 0x7ffffffc
+a "b 0" 000000ea 0xfffffff8
+a "b 4" 000000ea 0xfffffffc
+a "b 0xfffffff8" fcffffea
+a "b -4" fdffffea
+a "b 0x82000004" ffff7fea 0x80000000
+a "b 0x7e000008" 000080ea 0x80000000
+a "bl 0x7ffffffc" fdffffeb 0x80000000
+a "bne 0x8000000c" 0100001a 0x80000000
+a "bleq 0x80000000" feffff0b 0x80000000
+aE "b 0x7ffffffc" eafffffe 0x7ffffffc
+aE "b 0x80000000" eafffffe 0x80000000
+aE "b 0xfffffffc" eafffffe 0xfffffffc
+aE "b 0x80000000" eaffffff 0x7ffffffc
+aE "b 0" ea000000 0xfffffff8
+aE "b 4" ea000000 0xfffffffc
+aE "b 0xfffffff8" eafffffc
+aE "b -4" eafffffd
+aE "b 0x82000004" ea7fffff 0x80000000
+aE "b 0x7e000008" ea800000 0x80000000
+aE "bl 0x7ffffffc" ebfffffd 0x80000000
+aE "bne 0x8000000c" 1a000001 0x80000000
+aE "bleq 0x80000000" 0bfffffe 0x80000000
 a "blx 0x1" fefffffa
 a "blx 0x2" fefffffb
 a "blx 0xa" 000000fb

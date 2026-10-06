@@ -1,0 +1,69 @@
+NAME=ARM32 branches in high mapped memory
+FILE=malloc://16
+ARGS=-a arm -b 32 -m 0x80000000
+CMDS=<<EOF
+wa "b 0x80000000"
+p8 4
+pi 1
+wa "bl 0x7ffffffc"
+p8 4
+wa "bne 0x8000000c"
+p8 4
+EOF
+EXPECT=<<EOF
+feffffea
+b 0x80000000
+fdffffeb
+0100001a
+EOF
+RUN
+
+NAME=ARM32 branches in high mapped memory big endian
+FILE=malloc://16
+ARGS=-a arm -b 32 -m 0x80000000 -E big
+CMDS=<<EOF
+wa "b 0x80000000"
+p8 4
+wa "bleq 0x80000000"
+p8 4
+EOF
+EXPECT=<<EOF
+eafffffe
+0bfffffe
+EOF
+RUN
+
+NAME=ARM32 invalid branch displacements leave memory unchanged
+FILE=malloc://16
+ARGS=-a arm -b 32 -m 0x80000000
+CMDS=<<EOF
+wx 01020304
+wa "b 0x82000008"
+p8 4
+wa "b 0x7e000004"
+p8 4
+wa "b 0x80000002"
+p8 4
+EOF
+EXPECT=<<EOF
+01020304
+01020304
+01020304
+EOF
+RUN
+
+NAME=ARM32 oversized branch targets leave memory unchanged
+FILE=malloc://16
+ARGS=-a arm -b 32
+CMDS=<<EOF
+wx 01020304
+wa "b 0x100000008"
+p8 4
+wa "b 0x400000008"
+p8 4
+EOF
+EXPECT=<<EOF
+01020304
+01020304
+EOF
+RUN

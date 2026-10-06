@@ -5804,15 +5804,28 @@ static int arm_assemble(ArmOpcode *ao, ut64 off, const char *str) {
 					break;
 				case TYPE_BRA:
 					if (getreg(ao->a[0]) == -1) {
-						// TODO: control if branch out of range
-						ret = (getnum(ao->a[0], &err) - (int)ao->off - 8) / 4;
-						if (ret >= 0x00800000 || ret < (int)0xff800000) {
+						ut64 target = getnum(ao->a[0], &err);
+						if (err) {
+							return 0;
+						}
+						// Also accept the existing signed representation of a 32-bit target.
+						if (target > UT32_MAX && target < (ut64)ST32_MIN) {
 							RZ_LOG_ERROR("assembler: arm: %s: invalid branch address (out of range).\n", ops[i].name);
 							return 0;
 						}
-						ao->o |= ((ret >> 16) & 0xff) << 8;
-						ao->o |= ((ret >> 8) & 0xff) << 16;
-						ao->o |= ((ret) & 0xff) << 24;
+						// A32 uses PC + 8 and wraps address arithmetic at 32 bits.
+						st64 delta = (ut32)(target - ao->off - 8);
+						if (delta > ST32_MAX) {
+							delta -= 0x100000000LL;
+						}
+						if (delta < -0x02000000 || delta > 0x01fffffc || (delta & 3)) {
+							RZ_LOG_ERROR("assembler: arm: %s: invalid branch address (out of range).\n", ops[i].name);
+							return 0;
+						}
+						ut32 imm = (ut32)(delta / 4);
+						ao->o |= ((imm >> 16) & 0xff) << 8;
+						ao->o |= ((imm >> 8) & 0xff) << 16;
+						ao->o |= (imm & 0xff) << 24;
 					} else {
 						RZ_LOG_ERROR("assembler: arm: %s: instruction does not accept a register as argument\n", ops[i].name);
 						return 0;
