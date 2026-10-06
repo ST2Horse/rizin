@@ -499,7 +499,7 @@ BROKEN=1
 CMDS=<<EOF
 aaa
 acll
-acg main_Dog
+acg
 EOF
 EXPECT=<<EOF
 [Swift_Array]

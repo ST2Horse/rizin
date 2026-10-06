@@ -1,0 +1,52 @@
+NAME=acg prints all classes and inheritance without arguments
+FILE=malloc://64
+CMDS=<<EOF
+ac Base
+ac Child
+ac Other
+acb Child Base
+acg
+EOF
+EXPECT=<<EOF
+.----------.    .----------.
+|  Base    |    |  Other   |
+`----------'    `----------'
+    v
+    |
+    |
+.----------.
+|  Child   |
+`----------'
+EOF
+EXPECT_ERR=
+RUN
+
+NAME=acg accepts an empty class graph
+FILE=malloc://64
+CMDS=acg
+EXPECT=
+EXPECT_ERR=
+RUN
+
+NAME=acg rejects a class name argument
+FILE=malloc://64
+CMDS=<<EOF
+ac Base
+acg Base
+EOF
+EXPECT=
+EXPECT_ERR=<<EOF
+ERROR: Wrong number of arguments passed to `acg`, see its help with `acg?`
+
+ERROR: Usage: acg   # Print inheritance ASCII graph of all classes
+EOF
+RUN
+
+NAME=acg help describes all classes without arguments
+FILE=malloc://64
+CMDS=acg?
+EXPECT=<<EOF
+Usage: acg   # Print inheritance ASCII graph of all classes
+EOF
+EXPECT_ERR=
+RUN

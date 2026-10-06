@@ -392,7 +392,6 @@ static const RzCmdDescArg analysis_class_add_args[2];
 static const RzCmdDescArg analysis_class_del_args[2];
 static const RzCmdDescArg analysis_class_rename_args[3];
 static const RzCmdDescArg analysis_class_info_args[2];
-static const RzCmdDescArg analysis_class_graph_args[2];
 static const RzCmdDescArg analysis_class_method_add_args[5];
 static const RzCmdDescArg analysis_class_method_del_args[3];
 static const RzCmdDescArg analysis_class_method_rename_args[4];
@@ -7662,16 +7661,10 @@ static const RzCmdDescHelp analysis_class_info_help = {
 };
 
 static const RzCmdDescArg analysis_class_graph_args[] = {
-	{
-		.name = "class_name",
-		.type = RZ_CMD_ARG_TYPE_STRING,
-		.flags = RZ_CMD_ARG_FLAG_LAST,
-
-	},
 	{ 0 },
 };
 static const RzCmdDescHelp analysis_class_graph_help = {
-	.summary = "Print inheritance ascii graph",
+	.summary = "Print inheritance ASCII graph of all classes",
 	.args = analysis_class_graph_args,
 };
 

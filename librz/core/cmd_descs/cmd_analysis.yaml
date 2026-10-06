@@ -2161,11 +2161,9 @@ commands:
           - name: class_name
             type: RZ_CMD_ARG_TYPE_STRING
       - name: acg
-        summary: Print inheritance ascii graph
+        summary: Print inheritance ASCII graph of all classes
         cname: analysis_class_graph
-        args:
-          - name: class_name
-            type: RZ_CMD_ARG_TYPE_STRING
+        args: []
       - name: acm
         summary: Class methods
         subcommands:
