@@ -4,10 +4,104 @@
 #include <rz_analysis.h>
 #include <rz_core.h>
 #include "minunit.h"
+#include "analysis_private.h"
 
 #define SWITCH_TO_ARCH_BITS(arch, bits) \
 	rz_analysis_use(analysis, arch); \
 	rz_analysis_set_bits(analysis, bits);
+
+typedef struct {
+	int size;
+	int nopcode;
+	bool short_first_op;
+} MaskTestOp;
+
+static int mask_test_op(RzAnalysis *analysis, RzAnalysisOp *op, ut64 addr,
+	const ut8 *data, int len, RzAnalysisOpMask mask) {
+	const MaskTestOp *test_op = analysis->plugin_data;
+	op->size = test_op->short_first_op && !addr ? 2 : test_op->size;
+	op->nopcode = test_op->nopcode;
+	op->jump = addr + op->size;
+	return op->size;
+}
+
+bool test_rz_analysis_mask_bounds() {
+	RzAnalysis *analysis = rz_analysis_new(NULL);
+	mu_assert_notnull(analysis, "analysis");
+	RzAnalysisPlugin plugin = { .name = "mask-test", .op = mask_test_op };
+	MaskTestOp test_op = { .size = 4, .nopcode = 1 };
+	analysis->cur = &plugin;
+	analysis->plugin_data = &test_op;
+	const ut8 data[] = { 0x11, 0x22, 0x33, 0x44 };
+	const ut8 masked[] = { 0xff, 0x00, 0x00, 0x00 };
+	const ut8 unchanged[] = { 0xff, 0xff, 0xff, 0xff };
+	const ut8 truncated[] = { 0xff, 0x00, 0xff, 0xff };
+	ut8 *result = rz_analysis_mask(analysis, sizeof(data), data, 0);
+	mu_assert_notnull(result, "mask");
+	mu_assert_memeq(result, masked, sizeof(data), "complete instruction operands are masked");
+	free(result);
+
+	test_op.size = 6;
+	result = rz_analysis_mask(analysis, sizeof(data), data, 0);
+	mu_assert_notnull(result, "overlong mask");
+	mu_assert_memeq(result, unchanged, sizeof(data), "overlong instruction is not masked");
+	free(result);
+
+	test_op.size = 4;
+	test_op.nopcode = 5;
+	result = rz_analysis_mask(analysis, sizeof(data), data, 0);
+	mu_assert_notnull(result, "overlong opcode mask");
+	mu_assert_memeq(result, unchanged, sizeof(data), "overlong opcode cannot clear operands");
+	free(result);
+
+	test_op.nopcode = 4;
+	result = rz_analysis_mask(analysis, sizeof(data), data, 0);
+	mu_assert_notnull(result, "opcode-only mask");
+	mu_assert_memeq(result, unchanged, sizeof(data), "opcode-only instruction remains unchanged");
+	free(result);
+
+	test_op.nopcode = 1;
+	test_op.short_first_op = true;
+	result = rz_analysis_mask(analysis, sizeof(data), data, 0);
+	mu_assert_notnull(result, "truncated tail mask");
+	mu_assert_memeq(result, truncated, sizeof(data), "complete instruction is masked before truncated tail");
+	free(result);
+
+	analysis->plugin_data = NULL;
+	rz_analysis_free(analysis);
+	mu_end;
+}
+
+bool test_rz_analysis_h8300_truncated() {
+	RzAnalysis *analysis = rz_analysis_new(NULL);
+	mu_assert_notnull(analysis, "analysis");
+	mu_assert_true(rz_analysis_use(analysis, "h8300"), "h8300 plugin");
+	rz_analysis_set_bits(analysis, 16);
+	const ut8 instructions[][4] = {
+		{ 0x5e, 0x00, 0x08, 0x86 }, // jsr @0x886
+		{ 0x5a, 0x00, 0x08, 0x86 }, // jmp @0x886
+		{ 0x6e, 0x00, 0x12, 0x34 }, // mov.b @(0x1234,r0),r0h
+		{ 0x79, 0x00, 0x12, 0x34 }, // mov.w #0x1234,r0
+		{ 0x6b, 0x00, 0x12, 0x34 }, // mov.w @0x1234,r0
+	};
+	for (size_t i = 0; i < RZ_ARRAY_SIZE(instructions); i++) {
+		RzAnalysisOp op;
+		int ret = rz_analysis_op(analysis, &op, 0, instructions[i], 4, RZ_ANALYSIS_OP_MASK_BASIC);
+		mu_assert_eq(ret, 4, "complete h8300 instruction length");
+		rz_analysis_op_fini(&op);
+		for (size_t len = 1; len < 4; len++) {
+			ut8 *input = rz_mem_dup(instructions[i], len);
+			mu_assert_notnull(input, "truncated input");
+			ret = rz_analysis_op(analysis, &op, 0, input, len, RZ_ANALYSIS_OP_MASK_BASIC);
+			free(input);
+			mu_assert_true(ret < 1, "truncated h8300 instruction is rejected");
+			mu_assert_eq(op.type, RZ_ANALYSIS_OP_TYPE_ILL, "truncated h8300 instruction is invalid");
+			rz_analysis_op_fini(&op);
+		}
+	}
+	rz_analysis_free(analysis);
+	mu_end;
+}
 
 bool test_rz_analysis_op_val() {
 	RzAnalysis *analysis = rz_analysis_new(NULL);
@@ -279,6 +373,8 @@ bool test_rz_core_il_print_rzil() {
 }
 
 int all_tests() {
+	mu_run_test(test_rz_analysis_mask_bounds);
+	mu_run_test(test_rz_analysis_h8300_truncated);
 	mu_run_test(test_rz_analysis_op_val);
 	mu_run_test(test_rz_core_analysis_bytes);
 	mu_run_test(test_rz_core_print_disasm);

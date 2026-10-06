@@ -874,6 +874,10 @@ RZ_API int rz_analysis_set_big_endian(RzAnalysis *analysis, int bigend) {
 	return true;
 }
 
+/**
+ * \brief Create a byte mask that ignores operands of instructions referencing addresses.
+ * Incomplete instructions and invalid opcode lengths leave their bytes unmasked.
+ */
 RZ_API ut8 *rz_analysis_mask(RzAnalysis *analysis, ut32 size, const ut8 *data, ut64 at) {
 	RzAnalysisOp *op = NULL;
 	ut8 *ret = NULL;
@@ -900,10 +904,11 @@ RZ_API ut8 *rz_analysis_mask(RzAnalysis *analysis, ut32 size, const ut8 *data, u
 	memset(ret, 0xff, size);
 
 	while (idx < size) {
-		if ((oplen = rz_analysis_op(analysis, op, at, data + idx, size - idx, RZ_ANALYSIS_OP_MASK_BASIC)) < 1) {
+		oplen = rz_analysis_op(analysis, op, at, data + idx, size - idx, RZ_ANALYSIS_OP_MASK_BASIC);
+		if (oplen < 1 || (ut32)oplen > size - idx) {
 			break;
 		}
-		if ((op->ptr != UT64_MAX || op->jump != UT64_MAX) && op->nopcode != 0) {
+		if ((op->ptr != UT64_MAX || op->jump != UT64_MAX) && op->nopcode > 0 && op->nopcode < oplen) {
 			memset(ret + idx + op->nopcode, 0, oplen - op->nopcode);
 		}
 		idx += oplen;

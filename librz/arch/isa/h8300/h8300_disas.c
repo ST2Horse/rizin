@@ -949,6 +949,13 @@ static int h8300_decode_4(const ut8 *instr, H8300Instruction *cmd) {
 	ut32 x2 = rz_read_be16(instr);
 	ut32 x4 = rz_read_be32(instr);
 
+	switch (instr[0]) {
+		CASE_F_F(decode_abs16_4, 0x5a, JMP);
+		CASE_F_F(decode_abs16_4, 0x5e, JSR);
+	default:
+		break;
+	}
+
 	if (cmd->cpu_type == CPU_H8300H) {
 		switch (x4 & 0xfffffff8) {
 			CASE_F_F(decode_r32_4l, 0x01006d70, POP_L);
@@ -998,6 +1005,7 @@ static int h8300_decode_4(const ut8 *instr, H8300Instruction *cmd) {
 	}
 
 	switch (x2 & 0xff00) {
+		CASE_F_F(decode_rd3216r8_4, 0x6e00, MOV_B);
 		CASE_F_F(decode_rd3216r16_4, 0x6f00, MOV_W);
 	default:
 		break;
@@ -1215,9 +1223,6 @@ static int h8300_decode_2(const ut8 *instr, H8300Instruction *cmd) {
 		CASE_F_F(decode_r16_2, 0x6d70, POP_W);
 		CASE_F_F(decode_r16_2, 0x6df0, PUSH_W);
 
-		CASE_F_F(decode_i16r16_4, 0x7900, MOV_W);
-		CASE_F_F(decode_abs16r8_4, 0x6b00, MOV_W);
-
 	case 0x0b00:
 	case 0x0b80:
 	case 0x0b90:
@@ -1329,10 +1334,6 @@ static int h8300_decode_2(const ut8 *instr, H8300Instruction *cmd) {
 		cmd->id = H8300_INSN_JMP;
 		ret = decode_ri_2(instr, cmd);
 		break;
-	case 0x5a:
-		cmd->id = H8300_INSN_JMP;
-		ret = decode_abs16_4(instr, cmd);
-		break;
 	case 0x5b:
 		cmd->id = H8300_INSN_JMP;
 		ret = decode_mi8(instr, cmd);
@@ -1340,10 +1341,6 @@ static int h8300_decode_2(const ut8 *instr, H8300Instruction *cmd) {
 	case 0x5d:
 		cmd->id = H8300_INSN_JSR;
 		ret = decode_ri_2(instr, cmd);
-		break;
-	case 0x5e:
-		cmd->id = H8300_INSN_JSR;
-		ret = decode_abs16_4(instr, cmd);
 		break;
 	case 0x5f:
 		cmd->id = H8300_INSN_JSR;
@@ -1407,11 +1404,6 @@ static int h8300_decode_2(const ut8 *instr, H8300Instruction *cmd) {
 		cmd->id = H8300_INSN_MOV_W;
 		ret = decode_incdecr16(instr, cmd);
 		break;
-	case 0x6e:
-		cmd->id = H8300_INSN_MOV_B;
-		ret = decode_rd3216r8_4(instr, cmd);
-		break;
-
 	default: break;
 	}
 	return ret;
